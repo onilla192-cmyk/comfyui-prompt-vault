@@ -106,6 +106,7 @@
     $('cp-move-destination').value='';
     $('cp-new').disabled=!!state.mode;
     $('cp-new-folder').disabled=!!state.folderId || !!state.mode;
+    updateModeButtons();
   }
   function updateModeButtons() {
     $('cp-move-mode').classList.toggle('active',state.mode==='move');
