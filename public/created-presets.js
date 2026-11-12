@@ -128,7 +128,7 @@
       }
       card.append(actions); $('cp-card-grid').append(card);
     });
-    if (!items.length) $('cp-card-grid').append(safeText('p',state.folderId?'This folder is empty. Create a preset or move one here.':'No created presets yet. Use New Preset or import a JSON file.','cp-empty'));
+    if (!items.length) $('cp-card-grid').append(safeText('p',state.folderId?'This folder is empty. Create a preset or move one here.':'Welcome to the Created Presets Hub. Presets are dumped here, unless saved into a folder. Create a preset using the New Preset button below.','cp-empty'));
     $('cp-folder-select').replaceChildren(new Option('Main Created Presets',''));
     $('cp-move-destination').replaceChildren(new Option('Main Created Presets',''));
     state.folders.forEach(f=>{ $('cp-folder-select').add(new Option(f.name,f.id)); $('cp-move-destination').add(new Option(f.name,f.id)); });
