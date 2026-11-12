@@ -1081,3 +1081,12 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   cursor:pointer;
 }
 #cp-thumbnail-preview video { width:100%; height:100%; object-fit:contain; }
+
+
+/* Media controls on the Created Preset detail image panel. */
+.detail-media-actions{position:absolute;top:10px;right:10px;z-index:5;display:flex;gap:7px}
+.detail-media-actions button{min-width:36px;min-height:34px;padding:0 10px;border:1px solid #555;border-radius:0;background:#222;color:#eee;font:inherit;font-size:12px;cursor:pointer}
+.detail-media-actions button:hover{background:#303030}
+.detail-media-actions #detail-media-add{width:42px;height:42px;padding:0;font-size:28px;line-height:1}
+.detail-media-actions .danger{border-color:#884444;color:#ffbaba}
+.detail-image.detail-video{display:block;width:100%;height:100%;object-fit:contain;background:#111}
