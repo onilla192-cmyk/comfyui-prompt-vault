@@ -15,8 +15,15 @@
 <h1 class="detail-heading" id="detail-title">Preset</h1>
 <div class="detail-layout">
 <div class="detail-image-wrap" id="detail-image-wrap">
-<img class="detail-image" id="detail-image" alt="Preset image" hidden>
+<img class="detail-image" id="detail-image" alt="Preset media" hidden>
+<video class="detail-image detail-video" id="detail-video" controls playsinline preload="metadata" hidden></video>
 <p class="detail-image-empty" id="detail-image-empty">No image available</p>
+<div class="detail-media-actions" id="detail-media-actions">
+  <button type="button" id="detail-media-add" aria-label="Add media" title="Add media">+</button>
+  <button type="button" id="detail-media-replace" hidden>Replace</button>
+  <button type="button" id="detail-media-remove" class="danger" hidden>Remove</button>
+  <input type="file" id="detail-media-input" accept="image/*,video/mp4" hidden>
+</div>
 <div class="preset-tags-panel" id="preset-tags-panel">
   <div class="preset-tags-list" id="preset-tags-list"></div>
   <div class="preset-tag-actions">
