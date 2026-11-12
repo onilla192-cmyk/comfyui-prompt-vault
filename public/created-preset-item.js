@@ -5,7 +5,12 @@
   const id=new URLSearchParams(window.location.search).get('id');
   const backButton=document.getElementById('preset-detail-back');
   if(backButton)backButton.addEventListener('click',event=>{
-    if(window.history.length>1){event.preventDefault();window.history.back();}
+    event.preventDefault();
+    if(document.referrer && new URL(document.referrer).origin===window.location.origin){
+      window.history.back();
+    }else{
+      window.location.assign('/');
+    }
   });
 
   const titleNode=document.getElementById('detail-title');
