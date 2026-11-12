@@ -63,13 +63,15 @@
     if (state.folderId) {
       const current = state.folders.find(f => f.id === state.folderId);
       const bar = document.createElement('div'); bar.className = 'cp-current-folder';
-      const back = safeText('button', '← All presets'); back.type = 'button'; back.addEventListener('click', () => { state.folderId = null; state.selected.clear(); render(); });
+      const parent = current && current.parentId ? state.folders.find(f => f.id === current.parentId) : null;
+      const back = safeText('button', parent ? '← ' + parent.name : '← All presets'); back.type = 'button'; back.addEventListener('click', () => { state.folderId = current?.parentId || null; state.selected.clear(); render(); });
       const name = safeText('strong', current ? current.name : 'Folder');
       const exp = safeText('button', 'Export Folder'); exp.type='button'; exp.addEventListener('click', () => exportFolder(current));
       const edit = safeText('button', 'Edit Folder'); edit.type='button'; edit.addEventListener('click', () => openFolderEditor(current));
       bar.append(back,name,exp,edit); $('cp-folder-grid').append(bar); $('cp-folder-grid').hidden = false;
-    } else {
-      state.folders.sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0)).forEach(folder => {
+    }
+    {
+      state.folders.filter(folder => (folder.parentId || null) === state.folderId).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0)).forEach(folder => {
         const card = document.createElement('article'); card.className = 'cp-folder-card';
         const openFolder = () => { state.folderId=folder.id; state.selected.clear(); state.mode=''; updateModeButtons(); render(); };
         const open = safeText('button', ''); open.type='button'; open.className='cp-folder-open';
@@ -141,7 +143,7 @@
     $('cp-folder-select').value='';
     $('cp-move-destination').value='';
     $('cp-new').disabled=!!state.mode;
-    $('cp-new-folder').disabled=!!state.folderId || !!state.mode;
+    $('cp-new-folder').disabled=!!state.mode;
     updateModeButtons();
   }
   function updateModeButtons() {
@@ -196,7 +198,8 @@
   async function createFolder(name) {
     const clean=name.trim();if(!clean)throw new Error('Enter a folder name.');
     if(state.folders.some(f=>f.name.toLowerCase()===clean.toLowerCase()))throw new Error('A folder with that name already exists.');
-    const folder={id:uid('preset-folder'),name:clean,createdAt:Date.now()};await put(FOLDERS,folder,'add');return folder;
+    if(state.folders.some(f=>(f.parentId||null)===state.folderId&&f.name.toLowerCase()===clean.toLowerCase()))throw new Error('A folder with that name already exists here.');
+    const folder={id:uid('preset-folder'),name:clean,createdAt:Date.now(),...(state.folderId?{parentId:state.folderId}:{})};await put(FOLDERS,folder,'add');return folder;
   }
   function openFolderEditor(folder) {
     state.editingFolderId=folder.id;$('cp-folder-title').textContent='Edit Folder';$('cp-folder-name').value=folder.name;
@@ -206,7 +209,7 @@
   async function saveFolder(){
     try{
       const name=$('cp-folder-name').value.trim();if(!name)throw new Error('Enter a folder name.');
-      if(state.folders.some(f=>f.id!==state.editingFolderId&&f.name.toLowerCase()===name.toLowerCase()))throw new Error('A folder with that name already exists.');
+      if(state.folders.some(f=>f.id!==state.editingFolderId&&(f.parentId||null)===(state.folders.find(x=>x.id===state.editingFolderId)?.parentId||state.folderId)&&f.name.toLowerCase()===name.toLowerCase()))throw new Error('A folder with that name already exists here.');
       if(state.editingFolderId){const f=state.folders.find(x=>x.id===state.editingFolderId);if(!f)throw new Error('Folder not found.');await put(FOLDERS,{...f,name});}
       else await createFolder(name);
       closeFolderEditor();await refresh();$('cp-status').textContent='';$('cp-status').classList.remove('error');
@@ -214,15 +217,16 @@
   }
   async function deleteFolder(){
     const id=state.editingFolderId;if(!id)return;
-    if(!confirm('Delete this folder? Its presets will return to the main Created Presets page.'))return;
+    if(!confirm('Delete this folder? Its presets and subfolders will be moved to its parent folder.'))return;
     try{
       const db=await dbPromise;
       await new Promise((resolve,reject)=>{
-        const tx=db.transaction([PRESETS,FOLDERS],'readwrite'),store=tx.objectStore(PRESETS),req=store.getAll();
-        req.onsuccess=()=>{(req.result||[]).forEach(p=>{if(p.folderId===id){delete p.folderId;store.put(p);}});tx.objectStore(FOLDERS).delete(id);};
+        const tx=db.transaction([PRESETS,FOLDERS],'readwrite'),store=tx.objectStore(PRESETS),req=store.getAll(),folderStore=tx.objectStore(FOLDERS),folderReq=folderStore.get(id);
+        req.onsuccess=()=>{(req.result||[]).forEach(p=>{if(p.folderId===id){if(state.folders.find(f=>f.id===id)?.parentId)p.folderId=state.folders.find(f=>f.id===id).parentId;else delete p.folderId;store.put(p);}});};
+        folderReq.onsuccess=()=>{const parentId=folderReq.result?.parentId;const children=folderStore.getAll();children.onsuccess=()=>{(children.result||[]).forEach(child=>{if(child.parentId===id){if(parentId)child.parentId=parentId;else delete child.parentId;folderStore.put(child);}});folderStore.delete(id);};};
         req.onerror=()=>tx.abort();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
       });
-      if(state.folderId===id)state.folderId=null;closeFolderEditor();await refresh();say('Folder deleted. Presets were kept in the main list.');
+      if(state.folderId===id)state.folderId=state.folders.find(f=>f.id===id)?.parentId||null;closeFolderEditor();await refresh();say('Folder deleted. Its contents were kept in the parent folder.');
     }catch(e){say(e.message||'Could not delete folder.',true);}
   }
   async function deletePresets(ids){
