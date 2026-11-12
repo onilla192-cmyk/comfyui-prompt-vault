@@ -38,7 +38,7 @@ body { min-height: 100vh; }
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-template-rows: repeat(3, auto);
+  grid-template-rows: none;
   gap: 24px;
   width: 100%;
 }
