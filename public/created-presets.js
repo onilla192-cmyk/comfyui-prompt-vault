@@ -110,10 +110,14 @@
   function updateModeButtons() {
     $('cp-move-mode').classList.toggle('active',state.mode==='move');
     $('cp-delete-mode').classList.toggle('active',state.mode==='delete');
-    $('cp-move-mode').textContent=state.mode==='move'?'Choose Destination':'Move';
-    $('cp-delete-mode').textContent=state.mode==='delete'?'Delete Selected':'Delete';
+    $('cp-move-mode').textContent=state.mode==='move'?'Cancel Move':'Move';
+    $('cp-delete-mode').textContent=state.mode==='delete'?'Cancel Delete':'Delete';
     $('cp-move-mode').disabled=state.mode==='delete';
     $('cp-delete-mode').disabled=state.mode==='move';
+    $('cp-move-selected').hidden=state.mode!=='move';
+    $('cp-delete-selected').hidden=state.mode!=='delete';
+    $('cp-move-selected').textContent='Move Selected ('+state.selected.size+')';
+    $('cp-delete-selected').textContent='Delete Selected ('+state.selected.size+')';
   }
   function closeEditor() { $('cp-dialog').hidden=true; state.editingId=null; state.thumbnail=null; }
   function openEditor(preset) {
@@ -233,30 +237,26 @@
   $('cp-save').addEventListener('click',()=>void savePreset());
   $('cp-close').addEventListener('click',closeEditor);$('cp-cancel').addEventListener('click',closeEditor);
   $('cp-upload-image').addEventListener('click',()=>$('cp-image-file').click());
-  $('cp-image-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{state.thumbnail=await compressImage(file);openEditor(state.editingId?state.presets.find(p=>p.id===state.editingId):null);}catch(err){say(err.message||'Could not upload thumbnail.',true);}});
+  $('cp-image-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{state.thumbnail=await compressImage(file);const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').replaceChildren(img);$('cp-image-info').textContent=state.thumbnail.width+' × '+state.thumbnail.height+' px · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB';}catch(err){say(err.message||'Could not upload thumbnail.',true);}});
   $('cp-remove-image').addEventListener('click',()=>{state.thumbnail=null;$('cp-thumbnail-preview').textContent='No thumbnail attached';$('cp-image-info').textContent='Images are compressed on upload while keeping their original proportions.';});
   $('cp-new-folder').addEventListener('click',()=>{state.editingFolderId=null;$('cp-folder-title').textContent='Create Folder';$('cp-folder-name').value='';$('cp-folder-save').textContent='Create Folder';$('cp-folder-delete').hidden=true;$('cp-folder-dialog').hidden=false;});
   $('cp-folder-save').addEventListener('click',()=>void saveFolder());$('cp-folder-close').addEventListener('click',closeFolderEditor);$('cp-folder-cancel').addEventListener('click',closeFolderEditor);$('cp-folder-delete').addEventListener('click',()=>void deleteFolder());
-  $('cp-move-mode').addEventListener('click',()=>{if(state.mode==='move'){state.mode='';state.selected.clear();}else{state.mode='move';state.selected.clear();}updateModeButtons();render();if(state.mode==='move'){say('Select presets, then choose a destination with Move again.');}});
-  $('cp-delete-mode').addEventListener('click',()=>{if(state.mode==='delete'){state.mode='';state.selected.clear();updateModeButtons();render();return;}state.mode='delete';state.selected.clear();updateModeButtons();render();say('Select the presets to delete.');});
+  $('cp-move-mode').addEventListener('click',()=>{state.mode=state.mode==='move'?'':'move';state.selected.clear();updateModeButtons();render();if(state.mode==='move')say('Select presets, then choose Move Selected.');});
+  $('cp-delete-mode').addEventListener('click',()=>{state.mode=state.mode==='delete'?'':'delete';state.selected.clear();updateModeButtons();render();if(state.mode==='delete')say('Select presets, then choose Delete Selected.');});
+  $('cp-move-selected').addEventListener('click',()=>{if(!state.selected.size){say('Select at least one preset first.',true);return;}$('cp-move-dialog').hidden=false;});
+  $('cp-delete-selected').addEventListener('click',()=>void deletePresets([...state.selected]));
   $('cp-more').addEventListener('click',()=>{$('cp-more-menu').hidden=!$('cp-more-menu').hidden;});
   $('cp-export-all').addEventListener('click',()=>{exportAll();$('cp-more-menu').hidden=true;});
   $('cp-import-all').addEventListener('click',()=>{$('cp-json-file').click();$('cp-more-menu').hidden=true;});
   $('cp-import-folder').addEventListener('click',()=>{$('cp-folder-file').click();$('cp-more-menu').hidden=true;});
   $('cp-json-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const n=await importAll(file);say(n+' preset'+(n===1?'':'s')+' imported. Existing duplicates were skipped.');}catch(err){say(err.message||'Could not import presets.',true);}});
   $('cp-folder-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const result=await importFolder(file);say('Created folder “'+result.folder.name+'” with '+result.count+' presets.');}catch(err){say(err.message||'Could not import folder.',true);}});
-  $('cp-move-mode').addEventListener('dblclick',()=>{if(state.mode==='move'&&state.selected.size){$('cp-move-dialog').hidden=false;}});
-  $('cp-move-mode').addEventListener('contextmenu',e=>{e.preventDefault();if(state.mode==='move'&&state.selected.size)$('cp-move-dialog').hidden=false;});
-  $('cp-move-close').addEventListener('click',()=>$('cp-move-dialog').hidden=true);$('cp-move-cancel').addEventListener('click',()=>$('cp-move-dialog').hidden=true);$('cp-move-confirm').addEventListener('click',()=>void moveSelected());
-  $('cp-move-mode').addEventListener('keydown',e=>{if(e.key==='Enter'&&state.mode==='move'&&state.selected.size)$('cp-move-dialog').hidden=false;});
-  $('cp-move-mode').title='Tap to enter selection, then double-click or long-press to choose destination';
-  $('cp-delete-mode').addEventListener('dblclick',()=>{if(state.mode==='delete'&&state.selected.size)void deletePresets([...state.selected]);});
+  $('cp-move-close').addEventListener('click',()=>$('cp-move-dialog').hidden=true);
+  $('cp-move-cancel').addEventListener('click',()=>$('cp-move-dialog').hidden=true);
+  $('cp-move-confirm').addEventListener('click',()=>void moveSelected());
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeEditor();closeFolderEditor();$('cp-move-dialog').hidden=true;$('cp-more-menu').hidden=true;}});
   $('cp-dialog').addEventListener('click',e=>{if(e.target===$('cp-dialog'))closeEditor();});
   $('cp-folder-dialog').addEventListener('click',e=>{if(e.target===$('cp-folder-dialog'))closeFolderEditor();});
   $('cp-move-dialog').addEventListener('click',e=>{if(e.target===$('cp-move-dialog'))$('cp-move-dialog').hidden=true;});
-  $('cp-move-confirm').textContent='Move Selected';
-  $('cp-move-mode').addEventListener('click',()=>{if(state.mode==='move'&&state.selected.size)$('cp-move-dialog').hidden=false;});
-  $('cp-delete-mode').addEventListener('click',()=>{if(state.mode==='delete'&&state.selected.size)void deletePresets([...state.selected]);});
   refresh().catch(e=>say(e.message||'Could not load Created Presets.',true));
 })();
