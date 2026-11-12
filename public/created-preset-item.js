@@ -14,6 +14,13 @@
   const tagNameInput=document.getElementById('preset-tag-name');
   const tagInfoInput=document.getElementById('preset-tag-info');
   const tagCancel=document.getElementById('preset-tag-cancel');
+  const editTagButton=document.getElementById('preset-edit-tag');
+  const deleteTagButton=document.getElementById('preset-delete-tag');
+  const editPicker=document.getElementById('preset-edit-picker');
+  const deletePicker=document.getElementById('preset-delete-picker');
+  const editSelect=document.getElementById('preset-edit-select');
+  const deleteSelect=document.getElementById('preset-delete-select');
+  let editingTagId=null;
   let currentPreset=null;
 
   let database=null;
@@ -65,8 +72,16 @@
     });
   }
   function closeTagEditor(){
-    tagEditor.hidden=true;addTagButton.hidden=false;tagNameInput.value='';tagInfoInput.value='';
+    tagEditor.hidden=true;addTagButton.hidden=false;tagNameInput.value='';tagInfoInput.value='';editingTagId=null;
   }
+  function fillTagSelect(select){
+    select.replaceChildren();
+    (currentPreset.tags||[]).forEach(tag=>{
+      const option=document.createElement('option');option.value=tag.id;option.textContent=tag.name;select.append(option);
+    });
+  }
+  function hideTagPickers(){editPicker.hidden=true;deletePicker.hidden=true;}
+
   function savePrompt(value){
     return new Promise((resolve,reject)=>{
       const tx=database.transaction(STORE,'readwrite');
@@ -97,13 +112,41 @@
     renderTags();
     addTagButton.addEventListener('click',()=>{addTagButton.hidden=true;tagEditor.hidden=false;tagNameInput.focus();});
     tagCancel.addEventListener('click',closeTagEditor);
+    editTagButton.addEventListener('click',()=>{
+      if(!(currentPreset.tags||[]).length){statusNode.textContent='There are no tags to edit.';return;}
+      closeTagEditor();fillTagSelect(editSelect);deletePicker.hidden=true;editPicker.hidden=false;
+    });
+    document.getElementById('preset-edit-cancel').addEventListener('click',()=>{editPicker.hidden=true;});
+    document.getElementById('preset-edit-continue').addEventListener('click',()=>{
+      const tag=(currentPreset.tags||[]).find(item=>item.id===editSelect.value);if(!tag)return;
+      editingTagId=tag.id;tagNameInput.value=tag.name;tagInfoInput.value=tag.info;
+      editPicker.hidden=true;addTagButton.hidden=true;tagEditor.hidden=false;tagNameInput.focus();
+    });
+    deleteTagButton.addEventListener('click',()=>{
+      if(!(currentPreset.tags||[]).length){statusNode.textContent='There are no tags to delete.';return;}
+      fillTagSelect(deleteSelect);editPicker.hidden=true;deletePicker.hidden=false;
+    });
+    document.getElementById('preset-delete-cancel').addEventListener('click',()=>{deletePicker.hidden=true;});
+    document.getElementById('preset-delete-confirm').addEventListener('click',()=>{
+      const tag=(currentPreset.tags||[]).find(item=>item.id===deleteSelect.value);if(!tag)return;
+      if(!window.confirm('Delete the tag "'+tag.name+'"?'))return;
+      const tags=currentPreset.tags.filter(item=>item.id!==tag.id);
+      statusNode.textContent='Deleting tag…';
+      void savePresetField('tags',tags).then(()=>{renderTags();deletePicker.hidden=true;statusNode.textContent='Tag deleted';}).catch(error=>{statusNode.textContent=error.message||'Could not delete tag';});
+    });
     tagEditor.addEventListener('submit',event=>{
       event.preventDefault();
       const name=tagNameInput.value.trim(),info=tagInfoInput.value.trim();
       if(!name||!info)return;
-      const tags=[...(currentPreset.tags||[]),{id:'tag-'+Date.now()+'-'+Math.random().toString(36).slice(2),name,info}];
-      statusNode.textContent='Saving tag…';
-      void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent='Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
+      const tags=[...(currentPreset.tags||[])];
+      if(editingTagId){
+        const index=tags.findIndex(item=>item.id===editingTagId);if(index<0)return;
+        tags[index]={...tags[index],name,info};
+      }else{
+        tags.push({id:'tag-'+Date.now()+'-'+Math.random().toString(36).slice(2),name,info});
+      }
+      statusNode.textContent=editingTagId?'Updating tag…':'Saving tag…';
+      void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent=editingTagId?'Tag updated':'Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
     });
     const dataUrl=preset.thumbnail&&preset.thumbnail.dataUrl;
     if(typeof dataUrl==='string'&&dataUrl.startsWith('data:image/')){
