@@ -129,9 +129,8 @@
       if (state.mode) {
         const select=safeText('button',state.selected.has(preset.id)?'Selected':'Select'); select.type='button'; select.addEventListener('click',()=>{state.selected.has(preset.id)?state.selected.delete(preset.id):state.selected.add(preset.id);render();}); actions.append(select);
       } else {
-        const edit=safeText('button','Edit'); edit.type='button'; edit.addEventListener('click',()=>openEditor(preset));
-        const del=safeText('button','Delete'); del.type='button'; del.className='danger'; del.addEventListener('click',()=>deletePresets([preset.id]));
-        actions.append(edit,del);
+        const open=safeText('button','Open'); open.type='button'; open.addEventListener('click',()=>{window.location.href='/created-preset-item.html?id='+encodeURIComponent(preset.id);});
+        actions.append(open);
       }
       card.append(actions); $('cp-card-grid').append(card);
     });
