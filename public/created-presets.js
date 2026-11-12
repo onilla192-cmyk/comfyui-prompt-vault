@@ -88,11 +88,19 @@
             if (highlightTimer) clearTimeout(highlightTimer);
             card.classList.remove('is-clicked');
             document.querySelectorAll('.cp-folder-menu').forEach(menu => menu.remove());
+            document.querySelectorAll('.cp-folder-backdrop').forEach(backdrop => backdrop.remove());
+            document.querySelectorAll('.cp-folder-card').forEach(item => item.classList.remove('cp-menu-open'));
+            const backdrop=document.createElement('div'); backdrop.className='cp-folder-backdrop';
             const menu = document.createElement('div'); menu.className='cp-folder-menu';
-            const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',openFolder);
-            const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{exportFolder(folder);menu.remove();});
-            const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{menu.remove();openFolderEditor(folder);});
-            menu.append(openItem,exportItem,editItem); card.append(menu);
+            const closeMenu=()=>{menu.remove();backdrop.remove();card.classList.remove('cp-menu-open');};
+            backdrop.addEventListener('click',closeMenu);
+            const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',()=>{closeMenu();openFolder();});
+            const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{closeMenu();exportFolder(folder);});
+            const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{closeMenu();openFolderEditor(folder);});
+            menu.append(openItem,exportItem,editItem);
+            card.classList.add('cp-menu-open');
+            document.body.append(backdrop);
+            card.append(menu);
             return;
           }
           card.classList.add('is-clicked');
