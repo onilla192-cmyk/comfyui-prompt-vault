@@ -270,3 +270,9 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   .create-toolbar { margin-bottom:8px; }
   .create-layout { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
 }
+
+.multiselect-button { display:grid; place-items:center; width:40px; height:40px; padding:0; border:1px solid #555; border-radius:0; background:#222; color:#f8fafc; cursor:pointer; }
+.multiselect-button svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:square; stroke-linejoin:miter; }
+.multiselect-button:hover { background:#2b2b2b; }
+.gallery-select-checkbox { position:absolute; z-index:2; top:10px; left:10px; width:22px; height:22px; accent-color:#eee; cursor:pointer; }
+.gallery-item.is-selected { outline:2px solid #eee; outline-offset:-2px; }
