@@ -1108,3 +1108,11 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 @media (prefers-reduced-motion: reduce) {
   .created-presets-page .cp-folder-open { transition: none; }
 }
+
+
+/* Prompt Vault card conversion action. */
+.prompt-detail-heading-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.prompt-detail-heading-row .detail-heading{margin:0}
+.convert-preset-button{min-height:36px;padding:0 14px;border:1px solid #555;border-radius:0;background:#222;color:#eee;font:inherit;font-size:12px;cursor:pointer}
+.convert-preset-button:hover{background:#303030}
+.convert-preset-button:disabled{opacity:.55;cursor:wait}
