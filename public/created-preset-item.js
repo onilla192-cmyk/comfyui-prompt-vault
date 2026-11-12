@@ -8,6 +8,14 @@
   const imageNode=document.getElementById('detail-image');
   const imageEmpty=document.getElementById('detail-image-empty');
   const statusNode=document.getElementById('detail-save-status');
+  const tagsList=document.getElementById('preset-tags-list');
+  const addTagButton=document.getElementById('preset-add-tag');
+  const tagEditor=document.getElementById('preset-tag-editor');
+  const tagNameInput=document.getElementById('preset-tag-name');
+  const tagInfoInput=document.getElementById('preset-tag-info');
+  const tagCancel=document.getElementById('preset-tag-cancel');
+  let currentPreset=null;
+
   let database=null;
   function openDb(){
     return new Promise((resolve,reject)=>{
@@ -23,6 +31,41 @@
       request.onsuccess=()=>resolve(request.result||null);
       request.onerror=()=>reject(request.error||new Error('Could not read this preset.'));
     });
+  }
+  function savePresetField(field,value){
+    return new Promise((resolve,reject)=>{
+      const tx=database.transaction(STORE,'readwrite');
+      const store=tx.objectStore(STORE);
+      const request=store.get(id);
+      request.onsuccess=()=>{
+        if(!request.result){tx.abort();return;}
+        const preset=request.result;
+        preset[field]=value;
+        store.put(preset);
+        currentPreset=preset;
+      };
+      request.onerror=()=>tx.abort();
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error||new Error('Could not save tag information.'));
+      tx.onabort=()=>reject(tx.error||new Error('Preset no longer exists.'));
+    });
+  }
+  function renderTags(){
+    tagsList.replaceChildren();
+    (currentPreset.tags||[]).forEach((tag,index)=>{
+      const item=document.createElement('div');item.className='preset-tag-item';
+      const button=document.createElement('button');button.type='button';button.className='preset-tag-toggle';
+      button.textContent=tag.name;button.setAttribute('aria-expanded','false');
+      const info=document.createElement('div');info.className='preset-tag-info';info.hidden=true;info.textContent=tag.info;
+      button.addEventListener('click',()=>{
+        const opening=info.hidden;
+        info.hidden=!opening;button.setAttribute('aria-expanded',String(opening));
+      });
+      item.append(button,info);tagsList.append(item);
+    });
+  }
+  function closeTagEditor(){
+    tagEditor.hidden=true;addTagButton.hidden=false;tagNameInput.value='';tagInfoInput.value='';
   }
   function savePrompt(value){
     return new Promise((resolve,reject)=>{
@@ -49,6 +92,19 @@
     titleNode.textContent=preset.title||'Preset';
     document.title=(preset.title||'Preset')+' · Created Presets';
     promptNode.value=typeof preset.prompt==='string'?preset.prompt:'';
+    currentPreset=preset;
+    if(!Array.isArray(currentPreset.tags))currentPreset.tags=[];
+    renderTags();
+    addTagButton.addEventListener('click',()=>{addTagButton.hidden=true;tagEditor.hidden=false;tagNameInput.focus();});
+    tagCancel.addEventListener('click',closeTagEditor);
+    tagEditor.addEventListener('submit',event=>{
+      event.preventDefault();
+      const name=tagNameInput.value.trim(),info=tagInfoInput.value.trim();
+      if(!name||!info)return;
+      const tags=[...(currentPreset.tags||[]),{id:'tag-'+Date.now()+'-'+Math.random().toString(36).slice(2),name,info}];
+      statusNode.textContent='Saving tag…';
+      void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent='Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
+    });
     const dataUrl=preset.thumbnail&&preset.thumbnail.dataUrl;
     if(typeof dataUrl==='string'&&dataUrl.startsWith('data:image/')){
       imageNode.src=dataUrl;imageNode.hidden=false;imageEmpty.hidden=true;
