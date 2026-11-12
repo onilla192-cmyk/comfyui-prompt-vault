@@ -2951,3 +2951,55 @@ body:has(.dataset-page) .dataset-empty{color:#9eacc0!important}
  body:has(.dataset-page) .dataset-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:9px!important}
 }
 @media(max-width:380px){body:has(.dataset-page) .dataset-record-grid{grid-template-columns:1fr!important}}
+
+
+/* Main Prompt Vault workspace fills the viewport edge to edge */
+html,body,#root{width:100%!important;min-height:100%!important}
+body{margin:0!important}
+.app{
+  display:flex!important;
+  flex-direction:column!important;
+  width:100%!important;
+  min-width:0!important;
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  margin:0!important;
+}
+.app-header{
+  flex:0 0 auto!important;
+  width:100%!important;
+  min-height:68px!important;
+}
+.app-main{
+  flex:1 0 auto!important;
+  display:flex!important;
+  flex-direction:column!important;
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+  min-height:calc(100vh - 68px)!important;
+  min-height:calc(100dvh - 68px)!important;
+  margin:0!important;
+  padding:0!important;
+}
+.app-main>.prompt-vault-page{
+  flex:1 0 auto!important;
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+  min-height:calc(100vh - 68px)!important;
+  min-height:calc(100dvh - 68px)!important;
+  margin:0!important;
+  padding:24px clamp(16px,3vw,44px) 40px!important;
+  border-radius:0!important;
+  overflow:visible!important;
+}
+.app-main>.prompt-vault-editor-page{
+  flex:1 0 auto!important;
+  width:100%!important;
+  max-width:none!important;
+  min-height:calc(100vh - 68px)!important;
+  min-height:calc(100dvh - 68px)!important;
+  margin:0!important;
+  padding:24px clamp(16px,3vw,44px) 40px!important;
+}
