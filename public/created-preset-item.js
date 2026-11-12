@@ -3,6 +3,11 @@
   const DB_NAME='prompt-vault-created-presets-v1';
   const STORE='presets';
   const id=new URLSearchParams(window.location.search).get('id');
+  const backButton=document.getElementById('preset-detail-back');
+  if(backButton)backButton.addEventListener('click',event=>{
+    if(window.history.length>1){event.preventDefault();window.history.back();}
+  });
+
   const titleNode=document.getElementById('detail-title');
   const promptNode=document.getElementById('detail-prompt');
   const imageNode=document.getElementById('detail-image');
