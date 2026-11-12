@@ -1051,3 +1051,33 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   flex:none;
 }
 .detail-prompt-toolbar>button { display:block; }
+
+
+/* MP4 thumbnails stay unloaded until the user presses Play. */
+.cp-preset-video-thumb {
+  position:relative;
+  display:grid;
+  place-items:center;
+  width:100%;
+  aspect-ratio:4 / 3;
+  overflow:hidden;
+  background:#111;
+}
+.cp-preset-video-thumb video {
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+.cp-preset-video-thumb .cp-video-play,
+#cp-thumbnail-preview button {
+  min-width:44px;
+  min-height:44px;
+  border:1px solid #777;
+  border-radius:50%;
+  background:rgba(20,20,20,.88);
+  color:#fff;
+  font-size:18px;
+  cursor:pointer;
+}
+#cp-thumbnail-preview video { width:100%; height:100%; object-fit:contain; }
