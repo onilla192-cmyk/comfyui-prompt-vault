@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#171717">
+<title>Created Preset</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="created-presets-page">
+<header class="site-header" aria-label="Site header"><div class="site-header-title">Created Presets</div></header>
+<main class="detail-main">
+<section class="detail-content" aria-labelledby="detail-title">
+<a class="detail-back" href="/">← Back to Created Presets</a>
+<h1 class="detail-heading" id="detail-title">Preset</h1>
+<div class="detail-layout">
+<div class="detail-image-wrap" id="detail-image-wrap">
+<img class="detail-image" id="detail-image" alt="Preset image" hidden>
+<p class="detail-image-empty" id="detail-image-empty">No image available</p>
+</div>
+<div class="detail-editor-wrap">
+<textarea class="detail-prompt" id="detail-prompt" aria-label="Preset prompt" placeholder="Prompt text will appear here…" spellcheck="false"></textarea>
+</div>
+</div>
+<p class="detail-save-status" id="detail-save-status" role="status" aria-live="polite"></p>
+</section>
+</main>
+<footer class="site-footer" aria-label="Site footer">
+<a class="light-toggle is-on" href="/prompt-vault.html" aria-label="Switch to Prompt Vault" title="Switch to Prompt Vault"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M8.5 14.5a6 6 0 1 1 7 0c-.8.6-1.2 1.4-1.4 2.5h-4.2c-.2-1.1-.6-1.9-1.4-2.5Z"/></svg></a>
+</footer>
+<script src="/created-preset-item.js" defer></script>
+</body>
+</html>
