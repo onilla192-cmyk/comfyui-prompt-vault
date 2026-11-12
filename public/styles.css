@@ -190,3 +190,69 @@ body { min-height: 100vh; }
 .detail-save-status { min-height: 18px; margin: 8px 0 0; color: #888; font-size: 11px; }
 .detail-empty { color: #999; }
 @media (max-width: 700px) { .detail-main { padding: 80px 16px; } .detail-layout { grid-template-columns: minmax(0, 1fr); } .detail-image-wrap { min-height: 260px; max-height: 55vh; } .detail-image { max-height: 55vh; } .detail-prompt { height: 45vh; min-height: 260px; padding: 18px; } }
+
+/* Card page: fixed viewport layout with independently scrollable prompt text. */
+html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; overflow: hidden; }
+.detail-main {
+  position: fixed;
+  inset: 64px 0 64px;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+  padding: 16px 24px;
+}
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1400px;
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+}
+.detail-back { flex: 0 0 40px; align-self: flex-start; margin: 0 0 12px; }
+.detail-heading { flex: 0 0 auto; margin: 0 0 12px; }
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+.detail-image-wrap {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.detail-image {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.detail-image-empty { padding: 16px; }
+.detail-editor-wrap { min-width: 0; min-height: 0; height: 100%; }
+.detail-editor-label { flex: 0 0 auto; margin-bottom: 8px; }
+.detail-prompt {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.detail-save-status { flex: 0 0 18px; }
+@media (max-width: 700px) {
+  .detail-main { padding: 12px 12px; }
+  .detail-back { min-height: 34px; flex-basis: 34px; margin-bottom: 8px; }
+  .detail-heading { font-size: 17px; margin-bottom: 8px; }
+  .detail-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .detail-image-wrap { min-height: 0; max-height: none; }
+  .detail-image { max-height: none; }
+  .detail-prompt { min-height: 0; height: auto; padding: 12px; font-size: 12px; }
+  .detail-editor-label { font-size: 11px; }
+}
