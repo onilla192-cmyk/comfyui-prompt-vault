@@ -40,6 +40,10 @@ async function loadGalleryTile(tile){
   }
   tile.dataset.loaded="true";delete tile.dataset.loading;
 }
+function openCard(item){
+  try{sessionStorage.setItem("prompt-vault-gallery-scroll-y",String(window.scrollY));}catch{}
+  window.location.href="/item.html?id="+encodeURIComponent(item.id);
+}
 async function renderGallery(){
   const items=pages().flatMap(p=>p.items||[]);
   gallery.querySelectorAll(".gallery-empty,.gallery-item").forEach(n=>{if(galleryObserver)galleryObserver.unobserve(n);n.remove()});
@@ -50,13 +54,22 @@ async function renderGallery(){
     tile.setAttribute("aria-label",(item.name||"Gallery item")+" — open prompt");
     tile.setAttribute("role","link");
     tile.setAttribute("tabindex","0");
-    tile.addEventListener("click",()=>{window.location.href="/item.html?id="+encodeURIComponent(item.id)});
-    tile.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();window.location.href="/item.html?id="+encodeURIComponent(item.id)}});
+    tile.addEventListener("click",()=>openCard(item));
+    tile.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCard(item)}});
     gallery.append(tile);
     if(galleryObserver)galleryObserver.observe(tile);else void loadGalleryTile(tile);
   }
 }
-$("import-button").addEventListener("click",()=>{dialog.hidden=false;document.body.classList.add("dialog-open");reset();fileInput.click()});$("choose-file").addEventListener("click",()=>fileInput.click());fileInput.addEventListener("change",e=>openFile(e.target.files&&e.target.files[0]));$("dialog-close").addEventListener("click",close);$("cancel-import").addEventListener("click",close);confirmButton.addEventListener("click",()=>done?close():void importDataset());dialog.addEventListener("click",e=>{if(e.target===dialog)close()});dropzone.addEventListener("dragover",e=>{e.preventDefault();dropzone.classList.add("drag-over")});dropzone.addEventListener("dragleave",()=>dropzone.classList.remove("drag-over"));dropzone.addEventListener("drop",e=>{e.preventDefault();dropzone.classList.remove("drag-over");openFile(e.dataTransfer&&e.dataTransfer.files[0])});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!dialog.hidden)close()});renderGallery();
+$("import-button").addEventListener("click",()=>{dialog.hidden=false;document.body.classList.add("dialog-open");reset();fileInput.click()});$("choose-file").addEventListener("click",()=>fileInput.click());fileInput.addEventListener("change",e=>openFile(e.target.files&&e.target.files[0]));$("dialog-close").addEventListener("click",close);$("cancel-import").addEventListener("click",close);confirmButton.addEventListener("click",()=>done?close():void importDataset());dialog.addEventListener("click",e=>{if(e.target===dialog)close()});dropzone.addEventListener("dragover",e=>{e.preventDefault();dropzone.classList.add("drag-over")});dropzone.addEventListener("dragleave",()=>dropzone.classList.remove("drag-over"));dropzone.addEventListener("drop",e=>{e.preventDefault();dropzone.classList.remove("drag-over");openFile(e.dataTransfer&&e.dataTransfer.files[0])});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!dialog.hidden)close()});
+renderGallery();
+try{
+  const savedPosition=sessionStorage.getItem("prompt-vault-gallery-scroll-y");
+  if(savedPosition!==null){
+    sessionStorage.removeItem("prompt-vault-gallery-scroll-y");
+    const y=Number(savedPosition);
+    if(Number.isFinite(y))requestAnimationFrame(()=>window.scrollTo(0,y));
+  }
+}catch{}
 
 const deleteDialog=document.getElementById("delete-dialog");
 function openDeleteDialog(){deleteDialog.hidden=false;document.body.classList.add("dialog-open");document.getElementById("cancel-delete").focus()}
