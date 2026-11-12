@@ -225,7 +225,7 @@ export function PromptVaultPage({ onClose, onTransferToCreatedPresets }: { onClo
   }
 
   const sendToMainPrompt = (prompt: string) => {
-    window.dispatchEvent(new CustomEvent('history-send-to-main-prompt', { detail: prompt }))
+    void navigator.clipboard?.writeText(prompt)
   }
 
   const deleteItem = async (item: PromptVaultItem, fromArchive: boolean) => {
@@ -323,7 +323,7 @@ export function PromptVaultPage({ onClose, onTransferToCreatedPresets }: { onClo
           <label htmlFor="prompt-vault-editor-text">Prompt</label>
           <textarea id="prompt-vault-editor-text" autoFocus value={editing.prompt} onChange={(event) => updatePrompt(editing.id, event.target.value)} placeholder="Enter prompt..." />
           <div className="prompt-vault-editor-actions">
-            <button type="button" className="prompt-vault-send-main" disabled={!editing.prompt.trim()} onClick={() => sendToMainPrompt(editing.prompt)}>Send to Main Prompt</button>
+            <button type="button" className="prompt-vault-send-main" disabled={!editing.prompt.trim()} onClick={() => sendToMainPrompt(editing.prompt)}>Copy Prompt</button>
             {editorIsArchived
               ? <button type="button" className="prompt-vault-editor-restore" onClick={() => { restoreItems([editing]); setEditing(null) }}>Restore Card</button>
               : <button type="button" className="prompt-vault-editor-archive" onClick={() => { archiveItems([editing]); setEditing(null) }}>Archive Card</button>}

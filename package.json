@@ -1,8 +1,8 @@
 {
-  "name": "comfyui-pwa",
+  "name": "prompt-vault",
   "private": true,
   "version": "1.0.0",
-  "description": "Mobile-friendly remote console PWA for ComfyUI",
+  "description": "Mobile-friendly prompt and dataset organizer",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
