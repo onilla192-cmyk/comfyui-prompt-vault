@@ -237,7 +237,7 @@
     }catch(e){await remove(FOLDERS,folder.id);throw e;}
   }
   const layoutToggle = $('cp-layout-toggle');
-  layoutToggle.addEventListener('click',()=>{
+  if (layoutToggle) layoutToggle.addEventListener('click',()=>{
     const enabled=document.body.classList.toggle('cp-vault-grid-size');
     layoutToggle.setAttribute('aria-pressed',String(enabled));
     layoutToggle.classList.toggle('active',enabled);
