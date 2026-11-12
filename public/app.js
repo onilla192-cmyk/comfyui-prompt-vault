@@ -47,7 +47,11 @@ async function renderGallery(){
     const tile=document.createElement("article");
     tile.className="gallery-tile gallery-item";
     tile._galleryItem=item;
-    tile.setAttribute("aria-label",item.name||"Gallery item");
+    tile.setAttribute("aria-label",(item.name||"Gallery item")+" — open prompt");
+    tile.setAttribute("role","link");
+    tile.setAttribute("tabindex","0");
+    tile.addEventListener("click",()=>{window.location.href="/item.html?id="+encodeURIComponent(item.id)});
+    tile.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();window.location.href="/item.html?id="+encodeURIComponent(item.id)}});
     gallery.append(tile);
     if(galleryObserver)galleryObserver.observe(tile);else void loadGalleryTile(tile);
   }
