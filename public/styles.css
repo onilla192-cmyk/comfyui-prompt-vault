@@ -38,13 +38,14 @@ body { min-height: 100vh; }
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-template-rows: repeat(3, 240px);
-  gap: 20px;
+  grid-template-rows: repeat(3, auto);
+  gap: 24px;
   width: 100%;
 }
 .gallery-tile {
   min-width: 0;
-  height: 240px;
+  height: auto;
+  aspect-ratio: 2 / 3;
   border: 1px solid #3d3d3d;
   background: #1d1d1d;
 }
@@ -84,7 +85,6 @@ body { min-height: 100vh; }
   .site-main { padding: 80px 16px; }
   .gallery-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 16px;
   }
-  .gallery-tile { height: 200px; }
 }
