@@ -5,7 +5,6 @@
   const promptNode=document.getElementById("detail-prompt");
   const imageNode=document.getElementById("detail-image");
   const imageEmpty=document.getElementById("detail-image-empty");
-  const saveStatus=document.getElementById("detail-save-status");
   const id=new URLSearchParams(window.location.search).get("id");
   function openDb(){
     return new Promise((resolve,reject)=>{
@@ -39,7 +38,7 @@
     if(!item){
       promptNode.value="This item could not be found. It may have been deleted.";
       promptNode.disabled=true;promptNode.classList.add("detail-empty");
-      imageEmpty.textContent="Card image unavailable";saveStatus.textContent="";return;
+      imageEmpty.textContent="Card image unavailable";return;
     }
     promptNode.value=typeof item.prompt==="string"?item.prompt:"";
     void loadImage(item.images&&item.images[0]);
@@ -53,11 +52,11 @@
           if(match){match.prompt=promptNode.value;found=true;break;}
         }
         if(!found)throw new Error("Item no longer exists in storage.");
-        localStorage.setItem(KEY,JSON.stringify(stored));saveStatus.textContent="Saved";
-      }catch(error){saveStatus.textContent="Could not save edits in this browser.";console.warn("Could not save prompt:",error);}
+        localStorage.setItem(KEY,JSON.stringify(stored));
+      }catch(error){console.warn("Could not save prompt:",error);}
     });
   }catch(error){
     promptNode.value="Could not load this item's prompt from this browser.";
-    promptNode.disabled=true;promptNode.classList.add("detail-empty");saveStatus.textContent="";
+    promptNode.disabled=true;promptNode.classList.add("detail-empty");
   }
 })();
