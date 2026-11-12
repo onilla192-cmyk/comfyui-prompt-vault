@@ -1090,3 +1090,21 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 .detail-media-actions #detail-media-add{width:42px;height:42px;padding:0;font-size:28px;line-height:1}
 .detail-media-actions .danger{border-color:#884444;color:#ffbaba}
 .detail-image.detail-video{display:block;width:100%;height:100%;object-fit:contain;background:#111}
+
+
+/* Tactile press feedback for folder buttons. */
+.created-presets-page .cp-folder-open {
+  transform: translateY(0) scale(1);
+  transform-origin: center;
+  transition: transform 110ms ease-out, filter 110ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.created-presets-page .cp-folder-open:active,
+.created-presets-page .cp-folder-open.is-pressed {
+  transform: translateY(2px) scale(.985);
+  filter: brightness(1.2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .created-presets-page .cp-folder-open { transition: none; }
+}
