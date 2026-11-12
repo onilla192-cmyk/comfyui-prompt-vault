@@ -4,14 +4,43 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#171717">
-<title>Alternate page</title>
+<title>Created Presets</title>
 <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="alternate-page">
+<body class="alternate-page created-presets-page">
 <header class="site-header" aria-label="Site header"><div class="site-header-title">Created Presets</div></header>
-<main class="site-main" aria-label="Alternate page"></main>
+<main class="site-main created-presets-main">
+  <section class="cp-toolbar" aria-label="Preset actions">
+    <button type="button" id="cp-new">+ New Preset</button>
+    <button type="button" id="cp-new-folder">+ New Folder</button>
+    <button type="button" id="cp-move-mode">Move</button>
+    <button type="button" id="cp-delete-mode">Delete</button>
+    <button type="button" id="cp-more">More</button>
+    <div id="cp-more-menu" hidden>
+      <button type="button" id="cp-export-all">Export Presets</button>
+      <button type="button" id="cp-import-all">Import Presets</button>
+      <button type="button" id="cp-import-folder">Import Folder</button>
+    </div>
+  </section>
+  <div id="cp-status" role="status" aria-live="polite"></div>
+  <section id="cp-folder-grid" class="cp-folder-grid" aria-label="Preset folders"></section>
+  <section id="cp-card-grid" class="cp-card-grid" aria-label="Created preset cards"></section>
+  <input id="cp-json-file" type="file" accept=".json,application/json" hidden>
+  <input id="cp-folder-file" type="file" accept=".json,application/json" hidden>
+  <input id="cp-image-file" type="file" accept="image/*" hidden>
+</main>
 <footer class="site-footer" aria-label="Site footer">
 <a class="light-toggle is-on" href="/" aria-label="Return to Prompt Vault" title="Return to Prompt Vault" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M8.5 14.5a6 6 0 1 1 7 0c-.8.6-1.2 1.4-1.4 2.5h-4.2c-.2-1.1-.6-1.9-1.4-2.5Z"/></svg></a>
 </footer>
-</body>
-</html>
+<div id="cp-dialog" class="cp-dialog-backdrop" hidden><section class="cp-dialog" role="dialog" aria-modal="true" aria-labelledby="cp-dialog-title">
+  <header><h2 id="cp-dialog-title">Create Preset</h2><button type="button" id="cp-close" aria-label="Close">×</button></header>
+  <label>Title<input id="cp-title" type="text" placeholder="Preset title"></label>
+  <label>Prompt<textarea id="cp-prompt" rows="8" placeholder="Enter the prompt for this preset..."></textarea></label>
+  <label>Folder<select id="cp-folder-select"><option value="">Main Created Presets</option></select></label>
+  <div class="cp-thumbnail-editor"><div id="cp-thumbnail-preview">No thumbnail attached</div><div><button type="button" id="cp-upload-image">Upload Image</button><button type="button" id="cp-remove-image">Remove Image</button><small id="cp-image-info">Images are compressed on upload while keeping their original proportions.</small></div></div>
+  <div class="cp-dialog-actions"><button type="button" id="cp-cancel">Cancel</button><button type="button" id="cp-save" class="primary">Save Preset</button></div>
+</section></div>
+<div id="cp-folder-dialog" class="cp-dialog-backdrop" hidden><section class="cp-dialog cp-folder-dialog" role="dialog" aria-modal="true" aria-labelledby="cp-folder-title"><header><h2 id="cp-folder-title">Create Folder</h2><button type="button" id="cp-folder-close" aria-label="Close">×</button></header><label>Folder name<input id="cp-folder-name" type="text" placeholder="Folder name"></label><div class="cp-dialog-actions"><button type="button" id="cp-folder-cancel">Cancel</button><button type="button" id="cp-folder-save" class="primary">Create Folder</button><button type="button" id="cp-folder-delete" class="danger" hidden>Delete Folder</button></div></section></div>
+<div id="cp-move-dialog" class="cp-dialog-backdrop" hidden><section class="cp-dialog cp-folder-dialog" role="dialog" aria-modal="true" aria-labelledby="cp-move-title"><header><h2 id="cp-move-title">Move selected presets</h2><button type="button" id="cp-move-close" aria-label="Close">×</button></header><label>Destination<select id="cp-move-destination"><option value="">Main Created Presets</option></select></label><div class="cp-dialog-actions"><button type="button" id="cp-move-cancel">Cancel</button><button type="button" id="cp-move-confirm" class="primary">Move</button></div></section></div>
+<script src="/created-presets.js" defer></script>
+</body></html>
