@@ -1,7 +1,9 @@
 const KEY="prompt-vault-imported-datasets-v1",DB="prompt-vault-imported-media",STORE="images";
 const $=id=>document.getElementById(id),gallery=$("gallery"),dialog=$("import-dialog"),fileInput=$("dataset-file"),preview=$("import-preview"),dropzone=$("import-dropzone"),errorBox=$("import-error"),confirmButton=$("confirm-import");
 let dataset=null,fileName="dataset.json",done=false;
-const imageUrlCache=new Map();\nlet multiSelectActive=false;\nconst selectedCardIds=new Set();
+const imageUrlCache=new Map();
+let multiSelectActive=false;
+const selectedCardIds=new Set();
 const makeId=p=>p+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
 const galleryObserver="IntersectionObserver" in window?new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){galleryObserver.unobserve(entry.target);void loadGalleryTile(entry.target)}}},{rootMargin:"300px 0px"}):null;
 function pages(){try{const v=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(v)?v:[]}catch{return[]}}
@@ -54,8 +56,25 @@ async function renderGallery(){
     tile.setAttribute("aria-label",(item.name||"Gallery item")+" — open prompt");
     tile.setAttribute("role","link");
     tile.setAttribute("tabindex","0");
-    tile.addEventListener("click",()=>openCard(item));
-    tile.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openCard(item)}});
+    tile.addEventListener("click",()=>{
+      if(multiSelectActive){
+        if(selectedCardIds.has(item.id))selectedCardIds.delete(item.id);else selectedCardIds.add(item.id);
+        tile.classList.toggle("is-selected",selectedCardIds.has(item.id));
+        const checkbox=tile.querySelector(".gallery-select-checkbox");
+        if(checkbox)checkbox.checked=selectedCardIds.has(item.id);
+      }else openCard(item);
+    });
+    tile.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();tile.click()}});
+    if(multiSelectActive){
+      const checkbox=document.createElement("input");
+      checkbox.type="checkbox";checkbox.className="gallery-select-checkbox";
+      checkbox.checked=selectedCardIds.has(item.id);
+      checkbox.setAttribute("aria-label","Select "+(item.name||"gallery item"));
+      checkbox.addEventListener("click",event=>event.stopPropagation());
+      checkbox.addEventListener("change",()=>{if(checkbox.checked)selectedCardIds.add(item.id);else selectedCardIds.delete(item.id);tile.classList.toggle("is-selected",checkbox.checked)});
+      tile.append(checkbox);
+      if(checkbox.checked)tile.classList.add("is-selected");
+    }
     gallery.append(tile);
     if(galleryObserver)galleryObserver.observe(tile);else void loadGalleryTile(tile);
   }
@@ -151,7 +170,8 @@ document.getElementById("selection-delete").addEventListener("click",async()=>{
     footer.innerHTML=originalFooter;bindFooterActions();await renderGallery();
   }catch(error){window.alert(error instanceof Error?error.message:"Could not delete selected cards.");}
 });
-\nbindFooterActions();
+
+bindFooterActions();
 document.getElementById("cancel-delete").addEventListener("click",closeDeleteDialog);
 document.getElementById("confirm-delete").addEventListener("click",()=>void deleteAllData());
 deleteDialog.addEventListener("click",event=>{if(event.target===deleteDialog)closeDeleteDialog()});
