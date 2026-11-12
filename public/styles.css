@@ -567,3 +567,78 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   .created-presets-page .cp-toolbar { gap: 3px; }
   .created-presets-page .cp-toolbar > button { padding: 0 5px; font-size: 9px; }
 }
+
+/* Created Presets: a single-column, vertically scrollable preset list. */
+.created-presets-page .created-presets-main {
+  position: fixed;
+  inset: 64px 0 64px;
+  height: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 24px 28px;
+}
+.created-presets-page .cp-card-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+.created-presets-page .cp-preset-card {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) auto;
+  align-items: stretch;
+  min-height: 104px;
+  width: 100%;
+}
+.created-presets-page .cp-preset-card > img,
+.created-presets-page .cp-preset-placeholder {
+  width: 116px;
+  height: 104px;
+  min-height: 104px;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+.created-presets-page .cp-preset-copy {
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 16px;
+}
+.created-presets-page .cp-preset-prompt {
+  -webkit-line-clamp: 3;
+}
+.created-presets-page .cp-card-actions {
+  align-self: center;
+  padding: 12px;
+  margin: 0;
+}
+.created-presets-page .cp-card-actions button { min-width: 68px; }
+.created-presets-page .cp-empty { width: 100%; }
+@media (max-width: 700px) {
+  .created-presets-page .created-presets-main { padding: 12px 12px 20px; }
+  .created-presets-page .cp-card-grid { gap: 8px; }
+  .created-presets-page .cp-preset-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 0;
+  }
+  .created-presets-page .cp-preset-card > img,
+  .created-presets-page .cp-preset-placeholder {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: 76px;
+    height: 100%;
+    min-height: 92px;
+  }
+  .created-presets-page .cp-preset-copy { padding: 9px 10px 4px; }
+  .created-presets-page .cp-preset-copy strong { font-size: 12px; }
+  .created-presets-page .cp-preset-prompt { -webkit-line-clamp: 2; font-size: 10px; }
+  .created-presets-page .cp-card-actions {
+    grid-column: 2;
+    justify-self: start;
+    padding: 4px 10px 9px;
+  }
+  .created-presets-page .cp-card-actions button { min-height: 30px; min-width: 58px; }
+}
