@@ -866,3 +866,70 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 @media (prefers-reduced-motion: reduce) {
   .created-presets-page .cp-folder-menu { animation: none; }
 }
+
+
+/* Additional-information tags live inside the preset image panel. */
+.preset-tags-panel {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 48%;
+  padding: 10px;
+  overflow: auto;
+  border-top: 1px solid #444;
+  background: rgba(20,20,20,.94);
+}
+.detail-image-wrap { position: relative; }
+.preset-tags-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.preset-tag-item { min-width: 0; max-width: 100%; }
+.preset-tag-toggle,
+.preset-add-tag,
+.preset-tag-editor button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #555;
+  border-radius: 0;
+  background: #252525;
+  color: #eee;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.preset-tag-toggle[aria-expanded="true"] { border-color: #d6b52c; color: #e6c229; }
+.preset-tag-info {
+  max-width: min(340px, 70vw);
+  margin-top: 5px;
+  padding: 8px;
+  border: 1px solid #444;
+  background: #1b1b1b;
+  color: #ddd;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.preset-tag-editor {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #454545;
+  background: #1b1b1b;
+}
+.preset-tag-editor[hidden], .preset-tags-panel [hidden] { display: none; }
+.preset-tag-editor label { display: grid; gap: 4px; color: #bbb; font-size: 11px; }
+.preset-tag-editor input, .preset-tag-editor textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #444;
+  border-radius: 0;
+  background: #111;
+  color: #eee;
+  font: inherit;
+  font-size: 12px;
+}
+.preset-tag-editor textarea { resize: vertical; }
+.preset-tag-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
