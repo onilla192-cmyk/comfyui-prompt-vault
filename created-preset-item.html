@@ -19,7 +19,21 @@
 <p class="detail-image-empty" id="detail-image-empty">No image available</p>
 <div class="preset-tags-panel" id="preset-tags-panel">
   <div class="preset-tags-list" id="preset-tags-list"></div>
-  <button type="button" class="preset-add-tag" id="preset-add-tag">+ Add Tag</button>
+  <div class="preset-tag-actions">
+    <button type="button" class="preset-add-tag" id="preset-add-tag">+ Add Tag</button>
+    <button type="button" class="preset-add-tag" id="preset-edit-tag">Edit Tag</button>
+    <button type="button" class="preset-add-tag" id="preset-delete-tag">Delete Tag</button>
+  </div>
+  <div class="preset-tag-picker" id="preset-edit-picker" hidden>
+    <label for="preset-edit-select">Choose a tag to edit</label>
+    <select id="preset-edit-select"></select>
+    <div><button type="button" id="preset-edit-cancel">Cancel</button><button type="button" id="preset-edit-continue">Edit Selected</button></div>
+  </div>
+  <div class="preset-tag-picker" id="preset-delete-picker" hidden>
+    <label for="preset-delete-select">Choose a tag to delete</label>
+    <select id="preset-delete-select"></select>
+    <div><button type="button" id="preset-delete-cancel">Cancel</button><button type="button" id="preset-delete-confirm" class="danger">Delete Selected</button></div>
+  </div>
   <form class="preset-tag-editor" id="preset-tag-editor" hidden>
     <label>Tag name<input id="preset-tag-name" type="text" maxlength="60" placeholder="Tag name" required></label>
     <label>Information<textarea id="preset-tag-info" rows="3" placeholder="Additional information" required></textarea></label>
