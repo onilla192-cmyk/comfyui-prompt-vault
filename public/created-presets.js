@@ -236,6 +236,14 @@
       await refresh();return {folder,count:entries.length};
     }catch(e){await remove(FOLDERS,folder.id);throw e;}
   }
+  const layoutToggle = $('cp-layout-toggle');
+  layoutToggle.addEventListener('click',()=>{
+    const enabled=document.body.classList.toggle('cp-vault-grid-size');
+    layoutToggle.setAttribute('aria-pressed',String(enabled));
+    layoutToggle.classList.toggle('active',enabled);
+    layoutToggle.textContent=enabled?'Default Size':'Grid Size';
+    layoutToggle.title=enabled?'Return to default Created Presets card sizing':'Switch to Prompt Vault card sizing';
+  });
   $('cp-new').addEventListener('click',()=>openEditor(null));
   $('cp-save').addEventListener('click',()=>void savePreset());
   $('cp-close').addEventListener('click',closeEditor);$('cp-cancel').addEventListener('click',closeEditor);
