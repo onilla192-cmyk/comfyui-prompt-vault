@@ -139,7 +139,34 @@
     if (!items.length) $('cp-card-grid').append(safeText('p',state.folderId?'This folder is empty. Create a preset or move one here.':'Welcome to the Created Presets Hub. Presets are dumped here, unless saved into a folder. Create a preset using the New Preset button below.','cp-empty'));
     $('cp-folder-select').replaceChildren(new Option('Main Created Presets',''));
     $('cp-move-destination').replaceChildren(new Option('Main Created Presets',''));
-    state.folders.forEach(f=>{ $('cp-folder-select').add(new Option(f.name,f.id)); $('cp-move-destination').add(new Option(f.name,f.id)); });
+    const folderPath = folder => {
+      const parts=[]; let current=folder; const seen=new Set();
+      while(current && !seen.has(current.id)){
+        seen.add(current.id); parts.unshift(current.name);
+        current=current.parentId ? state.folders.find(parent=>parent.id===current.parentId) : null;
+      }
+      return parts;
+    };
+    const folderGroups=new Map();
+    state.folders.forEach(folder=>{
+      const parent=folder.parentId ? state.folders.find(item=>item.id===folder.parentId) : null;
+      const groupKey=parent ? parent.id : '__root__';
+      if(!folderGroups.has(groupKey)){
+        const label=parent ? 'Subfolders — '+folderPath(parent).join(' / ') : 'Main page folders';
+        const groupA=document.createElement('optgroup');groupA.label=label;
+        const groupB=document.createElement('optgroup');groupB.label=label;
+        folderGroups.set(groupKey,[groupA,groupB]);
+      }
+      const [groupA,groupB]=folderGroups.get(groupKey);
+      const option=new Option(folder.name,folder.id);
+      option.label=folderPath(folder).join(' / ');
+      groupA.append(option);
+      groupB.append(new Option(folder.name,folder.id));
+    });
+    folderGroups.forEach(([editorGroup,moveGroup])=>{
+      $('cp-folder-select').append(editorGroup);
+      $('cp-move-destination').append(moveGroup);
+    });
     $('cp-folder-select').value='';
     $('cp-move-destination').value='';
     $('cp-new').disabled=!!state.mode;
