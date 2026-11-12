@@ -1,7 +1,7 @@
 const KEY="prompt-vault-imported-datasets-v1",DB="prompt-vault-imported-media",STORE="images";
 const $=id=>document.getElementById(id),gallery=$("gallery"),dialog=$("import-dialog"),fileInput=$("dataset-file"),preview=$("import-preview"),dropzone=$("import-dropzone"),errorBox=$("import-error"),confirmButton=$("confirm-import");
 let dataset=null,fileName="dataset.json",done=false;
-const imageUrlCache=new Map();
+const imageUrlCache=new Map();\nlet multiSelectActive=false;\nconst selectedCardIds=new Set();
 const makeId=p=>p+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
 const galleryObserver="IntersectionObserver" in window?new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){galleryObserver.unobserve(entry.target);void loadGalleryTile(entry.target)}}},{rootMargin:"300px 0px"}):null;
 function pages(){try{const v=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(v)?v:[]}catch{return[]}}
@@ -98,7 +98,60 @@ async function deleteAllData(){
     window.alert(error instanceof Error?error.message:"Could not delete all data.");
   }
 }
-document.getElementById("delete-button").addEventListener("click",openDeleteDialog);
+
+const multiButton=document.getElementById("multiselect-button");
+const footer=document.querySelector(".site-footer");
+const originalFooter=footer.innerHTML;
+function updateFooterMode(){
+  if(multiSelectActive){
+    footer.innerHTML='<button class="dialog-action secondary" id="cancel-multiselect" type="button">Cancel</button><button class="dialog-action primary" id="confirm-multiselect" type="button">Confirm</button>';
+    document.getElementById("cancel-multiselect").addEventListener("click",()=>{
+      multiSelectActive=false;selectedCardIds.clear();footer.innerHTML=originalFooter;bindFooterActions();void renderGallery();
+    });
+    document.getElementById("confirm-multiselect").addEventListener("click",()=>{
+      const modal=document.getElementById("selection-dialog");modal.hidden=false;document.body.classList.add("dialog-open");
+    });
+  }else{
+    footer.innerHTML=originalFooter;bindFooterActions();
+  }
+}
+function bindFooterActions(){
+  document.getElementById("multiselect-button")?.addEventListener("click",()=>{
+    multiSelectActive=true;selectedCardIds.clear();void renderGallery();updateFooterMode();
+  });
+  document.getElementById("delete-button")?.addEventListener("click",openDeleteDialog);
+  document.getElementById("import-button")?.addEventListener("click",()=>{dialog.hidden=false;document.body.classList.add("dialog-open");reset();fileInput.click()});
+}
+document.getElementById("selection-return").addEventListener("click",()=>{
+  document.getElementById("selection-dialog").hidden=true;document.body.classList.remove("dialog-open");
+});
+document.getElementById("selection-delete").addEventListener("click",async()=>{
+  const ids=new Set(selectedCardIds);
+  const stored=pages();
+  const removed=[];
+  for(const page of stored){
+    page.items=(page.items||[]).filter(item=>{if(ids.has(item.id)){removed.push(item);return false;}return true;});
+  }
+  const remaining=stored.filter(page=>page.items&&page.items.length);
+  try{
+    localStorage.setItem(KEY,JSON.stringify(remaining));
+    const keys=removed.flatMap(item=>(item.images||[]).map(image=>image.cacheKey).filter(Boolean));
+    if(keys.length){
+      const database=await db();
+      await new Promise((resolve,reject)=>{
+        const tx=database.transaction(STORE,"readwrite");
+        for(const key of keys)tx.objectStore(STORE).delete(key);
+        tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Could not remove selected images."));
+      });
+      database.close();
+      for(const key of keys){const url=imageUrlCache.get(key);if(url){URL.revokeObjectURL(url);imageUrlCache.delete(key);}}
+    }
+    selectedCardIds.clear();multiSelectActive=false;
+    document.getElementById("selection-dialog").hidden=true;document.body.classList.remove("dialog-open");
+    footer.innerHTML=originalFooter;bindFooterActions();await renderGallery();
+  }catch(error){window.alert(error instanceof Error?error.message:"Could not delete selected cards.");}
+});
+\nbindFooterActions();
 document.getElementById("cancel-delete").addEventListener("click",closeDeleteDialog);
 document.getElementById("confirm-delete").addEventListener("click",()=>void deleteAllData());
 deleteDialog.addEventListener("click",event=>{if(event.target===deleteDialog)closeDeleteDialog()});
