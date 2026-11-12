@@ -123,7 +123,17 @@
       card.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&!event.target.closest('button')){event.preventDefault();openDetail();}});
 
       if (state.selected.has(preset.id)) card.classList.add('selected');
-      if (preset.thumbnail && preset.thumbnail.dataUrl) { const img=document.createElement('img'); img.src=preset.thumbnail.dataUrl; img.alt=''; img.loading='lazy'; card.append(img); }
+      if (preset.thumbnail && preset.thumbnail.dataUrl && preset.thumbnail.type && preset.thumbnail.type.startsWith('video/')) {
+        const videoWrap=document.createElement('div');videoWrap.className='cp-preset-video-thumb';
+        const play=safeText('button','▶');play.type='button';play.className='cp-video-play';play.setAttribute('aria-label','Play preset video');
+        play.addEventListener('click',event=>{
+          event.stopPropagation();
+          let video=videoWrap.querySelector('video');
+          if(!video){video=document.createElement('video');video.className='cp-preset-video';video.controls=true;video.playsInline=true;video.preload='none';video.src=preset.thumbnail.dataUrl;videoWrap.prepend(video);}
+          play.hidden=true;video.load();void video.play().catch(()=>{play.hidden=false;});
+        });
+        videoWrap.append(play);card.append(videoWrap);
+      } else if (preset.thumbnail && preset.thumbnail.dataUrl) { const img=document.createElement('img'); img.src=preset.thumbnail.dataUrl; img.alt=''; img.loading='lazy'; card.append(img); }
       else card.append(safeText('div','✦ Prompt card','cp-preset-placeholder'));
       const body=document.createElement('div'); body.className='cp-preset-copy';
       body.append(safeText('strong',preset.title),safeText('p',preset.prompt,'cp-preset-prompt')); card.append(body);
@@ -192,8 +202,14 @@
     $('cp-title').value=preset?.title || ''; $('cp-prompt').value=preset?.prompt || '';
     $('cp-folder-select').value=preset?.folderId || state.folderId || '';
     $('cp-thumbnail-preview').replaceChildren();
-    if(state.thumbnail){const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').append(img);}
-    else $('cp-thumbnail-preview').textContent='No thumbnail attached';
+    if(state.thumbnail){
+      if(state.thumbnail.type&&state.thumbnail.type.startsWith('video/')){
+        const play=safeText('button','▶ Play video preview');play.type='button';play.addEventListener('click',()=>{
+          const video=document.createElement('video');video.controls=true;video.playsInline=true;video.preload='none';video.src=state.thumbnail.dataUrl;
+          $('cp-thumbnail-preview').replaceChildren(video);video.load();void video.play();
+        });$('cp-thumbnail-preview').append(play);
+      }else{const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').append(img);}
+    }else $('cp-thumbnail-preview').textContent='No thumbnail attached';
     $('cp-image-info').textContent=state.thumbnail?state.thumbnail.width+' × '+state.thumbnail.height+' px · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB':'Images are compressed on upload while keeping their original proportions.';
     $('cp-dialog').hidden=false; $('cp-title').focus();
   }
@@ -208,8 +224,12 @@
     try{await put(PRESETS,value);closeEditor();await refresh();say('Preset saved.');}catch(e){say(e.message||'Could not save preset.',true);}
   }
   async function compressImage(file) {
-    if(!file.type.startsWith('image/')) throw new Error('Choose an image file for the thumbnail.');
-    if(file.size>20*1024*1024) throw new Error('Choose an image smaller than 20 MB.');
+    if(!file.type.startsWith('image/')&&!['video/mp4'].includes(file.type)) throw new Error('Choose an image or MP4 video for the thumbnail.');
+    if(file.size>20*1024*1024) throw new Error('Choose a file smaller than 20 MB.');
+    if(file.type==='video/mp4'){
+      const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>typeof reader.result==='string'?resolve(reader.result):reject(new Error('Could not read video.'));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);});
+      return {dataUrl,width:0,height:0,type:file.type,size:file.size};
+    }
     let bitmap; try{bitmap=await createImageBitmap(file);}catch{throw new Error('This image could not be opened.');}
     try{
       if(bitmap.width*bitmap.height>24000000)throw new Error('Choose an image up to 24 megapixels.');
@@ -314,7 +334,7 @@
   $('cp-save').addEventListener('click',()=>void savePreset());
   $('cp-close').addEventListener('click',closeEditor);$('cp-cancel').addEventListener('click',closeEditor);
   $('cp-upload-image').addEventListener('click',()=>$('cp-image-file').click());
-  $('cp-image-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{state.thumbnail=await compressImage(file);const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').replaceChildren(img);$('cp-image-info').textContent=state.thumbnail.width+' × '+state.thumbnail.height+' px · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB';}catch(err){say(err.message||'Could not upload thumbnail.',true);}});
+  $('cp-image-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{state.thumbnail=await compressImage(file);$('cp-thumbnail-preview').replaceChildren();if(state.thumbnail.type==='video/mp4'){const play=safeText('button','▶ Play video preview');play.type='button';play.addEventListener('click',()=>{const video=document.createElement('video');video.controls=true;video.playsInline=true;video.preload='none';video.src=state.thumbnail.dataUrl;$('cp-thumbnail-preview').replaceChildren(video);video.load();void video.play();});$('cp-thumbnail-preview').append(play);$('cp-image-info').textContent='MP4 video · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB · loads only when played';}else{const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').append(img);$('cp-image-info').textContent=state.thumbnail.width+' × '+state.thumbnail.height+' px · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB';}}catch(err){say(err.message||'Could not upload thumbnail.',true);}});
   $('cp-remove-image').addEventListener('click',()=>{state.thumbnail=null;$('cp-thumbnail-preview').textContent='No thumbnail attached';$('cp-image-info').textContent='Images are compressed on upload while keeping their original proportions.';});
   $('cp-new-folder').addEventListener('click',()=>{state.editingFolderId=null;$('cp-folder-title').textContent=state.folderId?'Create Subfolder':'Create Folder';$('cp-folder-name').value='';$('cp-folder-save').textContent=state.folderId?'Create Subfolder':'Create Folder';$('cp-folder-delete').hidden=true;$('cp-folder-dialog').hidden=false;});
   $('cp-folder-save').addEventListener('click',()=>void saveFolder());$('cp-folder-cancel').addEventListener('click',closeFolderEditor);$('cp-folder-delete').addEventListener('click',()=>void deleteFolder());
