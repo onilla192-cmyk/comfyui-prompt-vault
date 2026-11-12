@@ -45,7 +45,7 @@
     const mediaRef=item.images&&item.images[0];
     void loadImage(mediaRef);
     convertButton.addEventListener("click",async()=>{
-      const title=(item.name||promptNode.value.trim().split(/\\s+/).slice(0,4).join(" ")||"Prompt Vault Preset").trim();
+      const title=(item.name||promptNode.value.trim().split(/\s+/).slice(0,4).join(" ")||"Prompt Vault Preset").trim();
       if(!window.confirm('Create a copy of "'+title+'" in the main Created Presets page?'))return;
       convertButton.disabled=true;convertButton.textContent="Creating…";
       let database;
