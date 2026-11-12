@@ -46,13 +46,19 @@ export function DatasetPage({onClose,onMoveToVault,onMoveToCreatedPresets}:{onCl
   <div className="dataset-imported-layout">
     <div className="dataset-page-content">
       {!pages.length && <section className="dataset-library-welcome">
-        <div className="dataset-welcome-art" aria-hidden="true"><div className="dataset-art-card dataset-art-card-back"></div><div className="dataset-art-card dataset-art-card-mid"></div><div className="dataset-art-card dataset-art-card-front"><span>▧</span><i></i><i></i><i></i></div></div>
         <div className="dataset-welcome-copy">
-          <span className="dataset-eyebrow">YOUR COLLECTION</span>
-          <h1>Datasets, organized.</h1>
-          <p>Bring your prompt and image collections together in one place. Import a dataset JSON file to browse, review, and organize every record.</p>
-          <button type="button" className="dataset-welcome-import" onClick={()=>setStep('upload')}><span aria-hidden="true">↑</span> Import a dataset</button>
-          <div className="dataset-welcome-notes"><span>⌁ Prompt and image records</span><span>▦ Browse visual previews</span><span>⇄ Move cards to Prompt Vault</span></div>
+          <span className="dataset-eyebrow">DATASET LIBRARY</span>
+          <h1>Your datasets, in one place.</h1>
+          <p>Import a Prompt Vault-compatible JSON file to browse image previews, review prompts, and move selected records into your collection.</p>
+          <div className="dataset-welcome-actions">
+            <button type="button" className="dataset-welcome-import" onClick={()=>setStep('upload')}><span aria-hidden="true">↑</span> Import dataset JSON</button>
+            <span className="dataset-welcome-hint">Supports prompt and image records</span>
+          </div>
+        </div>
+        <div className="dataset-welcome-side">
+          <div className="dataset-welcome-feature"><span>01</span><div><strong>Browse records</strong><small>Review prompts and image previews in a visual grid</small></div></div>
+          <div className="dataset-welcome-feature"><span>02</span><div><strong>Organize your collection</strong><small>Select individual records and move them where they belong</small></div></div>
+          <div className="dataset-welcome-feature"><span>03</span><div><strong>Keep your data portable</strong><small>Import and export datasets as JSON files</small></div></div>
         </div>
       </section>}
       {pages.length > 1 && <div className="dataset-page-switcher">
