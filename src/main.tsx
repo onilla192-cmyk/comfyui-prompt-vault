@@ -6,13 +6,13 @@ import App from './App'
 // Remove the legacy Workbox service worker that can keep serving an older
 // Datasets screen after a deployment. Reload once after unregistering it so
 // the browser requests the current Cloudflare Pages assets.
-async function clearStaleAppShell() {
-  if (!('serviceWorker' in navigator)) return
+async function clearStaleAppShell(): Promise<boolean> {
+  if (!('serviceWorker' in navigator)) return false
   const marker = 'prompt-vault-cache-refresh-v1'
-  if (sessionStorage.getItem(marker)) return
+  if (sessionStorage.getItem(marker)) return false
   try {
     const registrations = await navigator.serviceWorker.getRegistrations()
-    if (!registrations.length) return
+    if (!registrations.length) return false
     await Promise.all(registrations.map((registration) => registration.unregister()))
     if ('caches' in window) {
       const names = await caches.keys()
@@ -20,13 +20,15 @@ async function clearStaleAppShell() {
     }
     sessionStorage.setItem(marker, '1')
     window.location.reload()
+    return true
   } catch {
     // If browser cache APIs are unavailable, keep the app usable.
+    return false
   }
 }
 
-void clearStaleAppShell().then(() => {
-  if (sessionStorage.getItem('prompt-vault-cache-refresh-v1') === '1') return
+void clearStaleAppShell().then((reloading) => {
+  if (reloading) return
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <App />
