@@ -397,3 +397,36 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   .detail-layout { gap: 8px; }
   .detail-prompt { padding: 9px; font-size: 11px; }
 }
+
+
+/* Footer page toggle */
+.light-toggle {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #555;
+  background: #222;
+  color: #f8fafc;
+  text-decoration: none;
+  cursor: pointer;
+}
+.light-toggle svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.light-toggle:hover { background: #2b2b2b; }
+.light-toggle.is-on {
+  border-color: #d6b52c;
+  background: #e6c229;
+  color: #171717;
+}
+.light-toggle.is-on svg { fill: #f7d94b; }
+.light-toggle:focus-visible { outline: 2px solid #f8fafc; outline-offset: 3px; }
+.alternate-page .site-main { min-height: 100vh; }
