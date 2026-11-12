@@ -430,3 +430,38 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 .light-toggle.is-on svg { fill: #f7d94b; }
 .light-toggle:focus-visible { outline: 2px solid #f8fafc; outline-offset: 3px; }
 .alternate-page .site-main { min-height: 100vh; }
+
+
+/* Space titles and lightbulb toggle interaction */
+.site-header {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+}
+.site-header-title {
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.light-toggle {
+  border-color: #d6b52c;
+  color: #e6c229;
+  transition: transform 100ms ease, background-color 140ms ease, color 140ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.light-toggle:active {
+  transform: translateY(2px) scale(.97);
+}
+.light-toggle.is-on {
+  border-color: #d6b52c;
+  background: #e6c229;
+  color: #171717;
+}
+@media (max-width: 560px) {
+  .site-header { padding-left: 16px; padding-right: 16px; }
+  .site-header-title { font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .light-toggle { transition: none; }
+}
