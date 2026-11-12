@@ -149,9 +149,17 @@ export function PromptVaultPage({ onClose, onTransferToCreatedPresets }: { onClo
   const [newImagePreview, setNewImagePreview] = useState('')
   const [transferPending, setTransferPending] = useState(false)
   const [transferMessage, setTransferMessage] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [galleryFilter, setGalleryFilter] = useState<'all' | 'images' | 'text'>('all')
   const armedTimerRef = useRef<number | null>(null)
 
   const visibleItems = showArchived ? archived : items
+  const filteredItems = visibleItems.filter((item) => {
+    const query = searchQuery.trim().toLowerCase()
+    const matchesQuery = !query || item.name.toLowerCase().includes(query) || item.prompt.toLowerCase().includes(query)
+    const matchesFilter = galleryFilter === 'all' || (galleryFilter === 'images' ? !!item.imageRefs[0] : !item.imageRefs[0])
+    return matchesQuery && matchesFilter
+  })
 
   useEffect(() => {
     let live = true
@@ -357,8 +365,19 @@ export function PromptVaultPage({ onClose, onTransferToCreatedPresets }: { onClo
 
       {transferMessage && <div className="prompt-vault-transfer-message" role="status" aria-live="polite">{transferMessage}</div>}
 
-      <div className="prompt-vault-list">
-        {visibleItems.map((item) => (
+      <div className="prompt-gallery-controls">
+        <label className="prompt-gallery-search">
+          <span aria-hidden="true">⌕</span>
+          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search your prompts..." aria-label="Search prompts" />
+          {searchQuery && <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search">×</button>}
+        </label>
+        <div className="prompt-gallery-filters" role="group" aria-label="Filter gallery">
+          {(['all', 'images', 'text'] as const).map((filter) => <button key={filter} type="button" className={galleryFilter === filter ? 'active' : ''} onClick={() => setGalleryFilter(filter)}>{filter === 'all' ? 'All cards' : filter === 'images' ? 'With images' : 'Text only'}</button>)}
+        </div>
+      </div>
+
+      <div className="prompt-vault-list prompt-gallery-grid">
+        {filteredItems.map((item) => (
           <PromptVaultCard
             key={item.id}
             item={item}
@@ -368,7 +387,7 @@ export function PromptVaultPage({ onClose, onTransferToCreatedPresets }: { onClo
             onToggleSelected={() => toggleSelected(item.id)}
           />
         ))}
-        {!visibleItems.length && <div className="prompt-vault-empty"><strong>{showArchived ? 'No archived cards' : 'Prompt Vault is empty'}</strong><span>{showArchived ? 'Archived cards will appear here.' : 'Create a card or move imported cards from Datasets here.'}</span></div>}
+        {!filteredItems.length && <div className="prompt-vault-empty"><strong>{visibleItems.length ? 'No matching cards' : showArchived ? 'No archived cards' : 'Your gallery is ready'}</strong><span>{visibleItems.length ? 'Try another search or filter.' : showArchived ? 'Archived cards will appear here.' : 'Add a prompt card or import a dataset to start building your gallery.'}</span>{!visibleItems.length && !showArchived && <button type="button" className="prompt-vault-new" onClick={() => setCreating(true)}>Create your first card</button>}</div>}
       </div>
 
       {creating && (
