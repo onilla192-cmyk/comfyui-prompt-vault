@@ -3003,3 +3003,55 @@ body{margin:0!important}
   margin:0!important;
   padding:24px clamp(16px,3vw,44px) 40px!important;
 }
+
+
+/* Dataset page layout fix: keep the page in the app flow and let its content occupy the viewport */
+.app-main>.dataset-page,
+body:has(.dataset-page) .app-main>.dataset-page{
+  position:relative!important;
+  inset:auto!important;
+  z-index:1!important;
+  display:flex!important;
+  flex:1 0 auto!important;
+  flex-direction:column!important;
+  width:100%!important;
+  height:auto!important;
+  min-height:calc(100vh - 68px)!important;
+  min-height:calc(100dvh - 68px)!important;
+  max-height:none!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:visible!important;
+  border-radius:0!important;
+}
+body:has(.dataset-page) .dataset-imported-layout{
+  display:flex!important;
+  flex:1 0 auto!important;
+  flex-direction:column!important;
+  width:100%!important;
+  min-width:0!important;
+  min-height:calc(100vh - 156px)!important;
+  min-height:calc(100dvh - 156px)!important;
+  overflow:visible!important;
+}
+body:has(.dataset-page) .dataset-page-content{
+  flex:1 0 auto!important;
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:clamp(18px,3vw,38px)!important;
+  overflow:visible!important;
+}
+body:has(.dataset-page) .dataset-library-welcome{
+  box-sizing:border-box!important;
+  width:100%!important;
+  max-width:1440px!important;
+  min-height:min(560px,calc(100dvh - 190px))!important;
+  margin:0 auto!important;
+}
+@media(max-width:700px){
+ body:has(.dataset-page) .dataset-page-content{padding:14px!important}
+ body:has(.dataset-page) .dataset-library-welcome{min-height:0!important}
+}
