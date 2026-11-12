@@ -789,3 +789,10 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   cursor: pointer;
 }
 .created-presets-page .cp-folder-menu button:hover { background: #303030; }
+
+
+/* Keep destructive folder actions clearly separated from Cancel and Save. */
+.cp-folder-dialog:has(#cp-folder-delete:not([hidden])) .cp-dialog-actions {
+  justify-content: space-between;
+  gap: 28px;
+}
