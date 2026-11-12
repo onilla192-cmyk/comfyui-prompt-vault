@@ -145,8 +145,9 @@
       }else{
         tags.push({id:'tag-'+Date.now()+'-'+Math.random().toString(36).slice(2),name,info});
       }
-      statusNode.textContent=editingTagId?'Updating tag…':'Saving tag…';
-      void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent=editingTagId?'Tag updated':'Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
+      const wasEditing=Boolean(editingTagId);
+      statusNode.textContent=wasEditing?'Updating tag…':'Saving tag…';
+      void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent=wasEditing?'Tag updated':'Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
     });
     const dataUrl=preset.thumbnail&&preset.thumbnail.dataUrl;
     if(typeof dataUrl==='string'&&dataUrl.startsWith('data:image/')){
