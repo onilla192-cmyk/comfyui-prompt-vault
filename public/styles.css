@@ -739,3 +739,53 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
     gap: 16px;
   }
 }
+
+
+/* Folder tiles: compact single-row cards with a delayed single-click highlight and second-click menu. */
+.created-presets-page .cp-folder-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 54px;
+  padding: 0 12px;
+  background: #1d1d1d;
+  transition: border-color 120ms ease;
+}
+.created-presets-page .cp-folder-card.is-clicked {
+  border-color: #d6b52c;
+}
+.created-presets-page .cp-folder-open {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0;
+  cursor: pointer;
+}
+.created-presets-page .cp-folder-open strong { font-size: 13px; }
+.created-presets-page .cp-folder-open small { margin: 0; white-space: nowrap; color: #999; }
+.created-presets-page .cp-folder-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 8px;
+  display: grid;
+  min-width: 128px;
+  padding: 5px;
+  border: 1px solid #484848;
+  background: #202020;
+}
+.created-presets-page .cp-folder-menu button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: #eee;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.created-presets-page .cp-folder-menu button:hover { background: #303030; }
