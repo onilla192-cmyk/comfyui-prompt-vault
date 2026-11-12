@@ -113,6 +113,13 @@
     const items = visible();
     items.forEach(preset => {
       const card=document.createElement('article'); card.className='cp-preset-card';
+      card.tabIndex=0;
+      card.setAttribute('role','link');
+      card.setAttribute('aria-label','Open preset: '+preset.title);
+      const openDetail=()=>{if(!state.mode)window.location.href='/created-preset-item.html?id='+encodeURIComponent(preset.id);};
+      card.addEventListener('click',event=>{if(event.target.closest('button'))return;openDetail();});
+      card.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&!event.target.closest('button')){event.preventDefault();openDetail();}});
+
       if (state.selected.has(preset.id)) card.classList.add('selected');
       if (preset.thumbnail && preset.thumbnail.dataUrl) { const img=document.createElement('img'); img.src=preset.thumbnail.dataUrl; img.alt=''; img.loading='lazy'; card.append(img); }
       else card.append(safeText('div','✦ Prompt card','cp-preset-placeholder'));
