@@ -10970,27 +10970,3 @@ html body #root .app-main .generation-embed .generation-actions > .results-btn:l
   margin: 0 !important;
 }
 
-
-/* Compute destination setup panel */
-.compute-settings-section { display:flex; flex-direction:column; gap:10px; }
-.compute-mode-card {
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:12px 14px; border:1px solid var(--border-color,#343943);
-  border-radius:12px; background:var(--panel-bg,#1b1e25);
-}
-.compute-mode-card > div { display:flex; flex-direction:column; gap:4px; min-width:0; }
-.compute-mode-card strong { color:var(--text-primary,#f3f4f6); font-size:14px; }
-.compute-mode-card span { color:var(--text-secondary,#aab2c0); font-size:12px; line-height:1.4; }
-.compute-mode-card b { flex:0 0 auto; color:var(--text-secondary,#aab2c0); font-size:11px; font-weight:700; }
-.compute-mode-card.is-current { border-color:#258a62; }
-.compute-mode-card.is-current b { color:#59c995; }
-.compute-settings-section input { width:100%; box-sizing:border-box; }
-.compute-setup-status { display:flex; flex-direction:column; gap:7px; padding:10px 12px; border:1px solid var(--border-color,#343943); border-radius:10px; }
-.compute-setup-status-row { display:flex; justify-content:space-between; gap:12px; font-size:12px; }
-.compute-setup-status-row strong { font-size:11px; }
-.compute-setup-status-row .is-ready { color:#59c995; }
-.compute-setup-status-row .is-pending { color:#e5a34b; }
-.compute-setup-error { color:#ff7777; font-size:12px; line-height:1.4; }
-@media(max-width:520px) {
-  .compute-mode-card { align-items:flex-start; flex-direction:column; }
-}

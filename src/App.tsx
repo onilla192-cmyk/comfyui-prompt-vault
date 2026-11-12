@@ -10,7 +10,6 @@ import { buildWorkflow } from './workflowTemplate'
 import { cacheImage, getCachedImage, deleteCachedImage, cacheFile, getCachedFile, requestPersistentStorage, ensureImageCacheDb, syncHistoryMetadata } from './imageCache'
 import './App.css'
 import { DatasetPage } from './components/DatasetPage'
-import { ComputeSettings } from './components/ComputeSettings'
 import { PromptVaultPage, type PromptVaultItem } from './components/PromptVaultPage'
 import { getPromptVaultImage, importPromptVaultItems } from './promptVaultDb'
 import { readCreatedPresets, readCreatedPresetFolders, createCreatedPreset, createCreatedPresets, createCreatedPresetFolder, updateCreatedPreset, updateCreatedPresetFolder, deleteCreatedPresets, deleteCreatedPresetFolder, moveCreatedPresetsToFolder, exportCreatedPresets, exportCreatedPresetFolder, importCreatedPresets, importCreatedPresetFolder, type CreatedPreset, type CreatedPresetFolder, type PresetThumbnail } from './createdPresetsDb'
@@ -1872,7 +1871,6 @@ export default function App() {
     {settingsOpen && <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
       <aside className="settings-drawer minimax-settings-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header"><div><h2>MiniMax H3 Settings</h2><p>Image-to-video workflow</p></div><button className="close-btn" onClick={() => setSettingsOpen(false)}>×</button></div>
-        <ComputeSettings />
         <section className="settings-section">
           <div className="settings-section-heading">
             <h3>Models</h3>
