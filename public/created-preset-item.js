@@ -8,6 +8,11 @@
   const imageNode=document.getElementById('detail-image');
   const imageEmpty=document.getElementById('detail-image-empty');
   const statusNode=document.getElementById('detail-save-status');
+  const editMenuButton=document.getElementById('preset-edit-menu-button');
+  const editMenu=document.getElementById('preset-edit-menu');
+  const editTitleButton=document.getElementById('preset-edit-title');
+  const deletePresetButton=document.getElementById('preset-delete-preset');
+
   const tagsList=document.getElementById('preset-tags-list');
   const addTagButton=document.getElementById('preset-add-tag');
   const tagEditor=document.getElementById('preset-tag-editor');
@@ -106,6 +111,37 @@
     if(!preset)throw new Error('This preset could not be found. It may have been deleted.');
     titleNode.textContent=preset.title||'Preset';
     document.title=(preset.title||'Preset')+' · Created Presets';
+    editMenuButton.addEventListener('click',()=>{
+      editMenu.hidden=!editMenu.hidden;
+      editMenuButton.setAttribute('aria-expanded',String(!editMenu.hidden));
+    });
+    document.addEventListener('click',event=>{
+      if(!event.target.closest('.detail-prompt-toolbar')){editMenu.hidden=true;editMenuButton.setAttribute('aria-expanded','false');}
+    });
+    editTitleButton.addEventListener('click',async()=>{
+      editMenu.hidden=true;editMenuButton.setAttribute('aria-expanded','false');
+      const next=window.prompt('Edit preset title:',titleNode.textContent);
+      if(next===null)return;
+      const title=next.trim();if(!title){statusNode.textContent='Preset title cannot be empty.';return;}
+      try{
+        await savePresetField('title',title);
+        titleNode.textContent=title;document.title=title+' · Created Presets';statusNode.textContent='Title saved';
+      }catch(error){statusNode.textContent=error.message||'Could not save title';}
+    });
+    deletePresetButton.addEventListener('click',async()=>{
+      editMenu.hidden=true;editMenuButton.setAttribute('aria-expanded','false');
+      if(!window.confirm('Permanently delete this preset?'))return;
+      try{
+        await new Promise((resolve,reject)=>{
+          const tx=database.transaction(STORE,'readwrite');
+          tx.objectStore(STORE).delete(id);
+          tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not delete preset.'));
+          tx.onabort=()=>reject(tx.error||new Error('Could not delete preset.'));
+        });
+        window.location.href='/';
+      }catch(error){statusNode.textContent=error.message||'Could not delete preset';}
+    });
+
     promptNode.value=typeof preset.prompt==='string'?preset.prompt:'';
     currentPreset=preset;
     if(!Array.isArray(currentPreset.tags))currentPreset.tags=[];
