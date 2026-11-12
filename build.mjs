@@ -6,6 +6,7 @@ const source = new URL("./public/", import.meta.url);
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await cp(new URL("./index.html", import.meta.url), new URL("index.html", output));
+await cp(new URL("./item.html", import.meta.url), new URL("item.html", output));
 await cp(source, output, { recursive: true });
 
 console.log("Static site built successfully in dist/");
