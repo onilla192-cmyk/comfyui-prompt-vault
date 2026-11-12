@@ -92,15 +92,15 @@
             document.querySelectorAll('.cp-folder-card').forEach(item => item.classList.remove('cp-menu-open'));
             const backdrop=document.createElement('div'); backdrop.className='cp-folder-backdrop';
             const menu = document.createElement('div'); menu.className='cp-folder-menu';
-            const closeMenu=()=>{menu.remove();backdrop.remove();card.classList.remove('cp-menu-open');};
+            const rect=card.getBoundingClientRect();
+            menu.style.left=rect.left+'px'; menu.style.top=rect.bottom+'px'; menu.style.width=rect.width+'px';
+            const closeMenu=()=>{menu.remove();backdrop.remove();};
             backdrop.addEventListener('click',closeMenu);
             const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',()=>{closeMenu();openFolder();});
             const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{closeMenu();exportFolder(folder);});
             const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{closeMenu();openFolderEditor(folder);});
             menu.append(openItem,exportItem,editItem);
-            card.classList.add('cp-menu-open');
-            document.body.append(backdrop);
-            card.append(menu);
+            document.body.append(backdrop,menu);
             return;
           }
           card.classList.add('is-clicked');
