@@ -3115,3 +3115,39 @@ body:has(.dataset-page) .dataset-welcome-feature small{display:block!important;m
  body:has(.dataset-page) .dataset-welcome-actions{align-items:flex-start!important;flex-direction:column!important;gap:12px!important}
  body:has(.dataset-page) .dataset-welcome-feature{padding:15px 2px!important}
 }
+
+
+/* Hard removal of legacy Dataset illustration/panel; use a plain, content-sized landing section */
+body:has(.dataset-page) .dataset-library-welcome,
+body:has(.dataset-page) .dataset-welcome-art,
+body:has(.dataset-page) .dataset-art-card{display:none!important}
+body:has(.dataset-page) .dataset-simple-home{
+  display:grid!important;
+  grid-template-columns:minmax(0,1.2fr) minmax(250px,.8fr)!important;
+  align-items:center!important;
+  gap:40px!important;
+  width:100%!important;
+  max-width:1120px!important;
+  min-height:0!important;
+  height:auto!important;
+  margin:10px auto 30px!important;
+  padding:clamp(20px,4vw,42px)!important;
+  overflow:visible!important;
+  border:1px solid #2a394c!important;
+  border-radius:16px!important;
+  background:#151e2a!important;
+  box-shadow:none!important;
+}
+body:has(.dataset-page) .dataset-simple-copy{max-width:650px!important}
+body:has(.dataset-page) .dataset-simple-eyebrow{color:#83baff!important;font-size:11px!important;font-weight:800!important;letter-spacing:.16em!important}
+body:has(.dataset-page) .dataset-simple-copy h1{margin:12px 0!important;color:#f4f7fc!important;font-size:clamp(30px,4vw,46px)!important;line-height:1.1!important;letter-spacing:-.04em!important}
+body:has(.dataset-page) .dataset-simple-copy p{max-width:570px!important;margin:0!important;color:#aab8ca!important;font-size:14px!important;line-height:1.7!important}
+body:has(.dataset-page) .dataset-simple-import{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:46px!important;margin-top:22px!important;padding:0 18px!important;border:1px solid #68aaf5!important;border-radius:10px!important;background:#347fcf!important;color:white!important;font-size:13px!important;font-weight:800!important;cursor:pointer!important}
+body:has(.dataset-page) .dataset-simple-details{display:flex!important;flex-direction:column!important;border-top:1px solid #344255!important}
+body:has(.dataset-page) .dataset-simple-details>div{display:flex!important;flex-direction:column!important;gap:5px!important;padding:15px 2px!important;border-bottom:1px solid #344255!important}
+body:has(.dataset-page) .dataset-simple-details strong{color:#eaf1fa!important;font-size:13px!important}
+body:has(.dataset-page) .dataset-simple-details span{color:#91a2b8!important;font-size:11px!important;line-height:1.5!important}
+@media(max-width:700px){
+ body:has(.dataset-page) .dataset-simple-home{grid-template-columns:1fr!important;gap:24px!important;padding:22px!important}
+ body:has(.dataset-page) .dataset-simple-copy h1{font-size:34px!important}
+}

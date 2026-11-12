@@ -45,22 +45,19 @@ export function DatasetPage({onClose,onMoveToVault,onMoveToCreatedPresets}:{onCl
   </div>
   <div className="dataset-imported-layout">
     <div className="dataset-page-content">
-      {!pages.length && <section className="dataset-library-welcome">
-        <div className="dataset-welcome-copy">
-          <span className="dataset-eyebrow">DATASET LIBRARY</span>
-          <h1>Your datasets, in one place.</h1>
-          <p>Import a Prompt Vault-compatible JSON file to browse image previews, review prompts, and move selected records into your collection.</p>
-          <div className="dataset-welcome-actions">
-            <button type="button" className="dataset-welcome-import" onClick={()=>setStep('upload')}><span aria-hidden="true">↑</span> Import dataset JSON</button>
-            <span className="dataset-welcome-hint">Supports prompt and image records</span>
-          </div>
+      {!pages.length && <div className="dataset-simple-home">
+        <div className="dataset-simple-copy">
+          <span className="dataset-simple-eyebrow">DATASET LIBRARY</span>
+          <h1>Your datasets</h1>
+          <p>Import a JSON dataset to browse its prompt and image records, organize your collection, and move selected cards into Prompt Vault.</p>
+          <button type="button" className="dataset-simple-import" onClick={()=>setStep('upload')}>＋ Import dataset JSON</button>
         </div>
-        <div className="dataset-welcome-side">
-          <div className="dataset-welcome-feature"><span>01</span><div><strong>Browse records</strong><small>Review prompts and image previews in a visual grid</small></div></div>
-          <div className="dataset-welcome-feature"><span>02</span><div><strong>Organize your collection</strong><small>Select individual records and move them where they belong</small></div></div>
-          <div className="dataset-welcome-feature"><span>03</span><div><strong>Keep your data portable</strong><small>Import and export datasets as JSON files</small></div></div>
+        <div className="dataset-simple-details">
+          <div><strong>Browse</strong><span>View image previews and prompt details</span></div>
+          <div><strong>Organize</strong><span>Select records and move them into your vault</span></div>
+          <div><strong>Export</strong><span>Keep your dataset portable as JSON</span></div>
         </div>
-      </section>}
+      </div>}
       {pages.length > 1 && <div className="dataset-page-switcher">
         {pages.map(p=><button className={p.id===active?'active':''} key={p.id} onClick={()=>{setActive(p.id);setVaultSel(new Set())}}>
           <span>{p.name}</span><small>{p.items.length} records</small>
