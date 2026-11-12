@@ -73,7 +73,14 @@
         const card = document.createElement('article'); card.className = 'cp-folder-card';
         const openFolder = () => { state.folderId=folder.id; state.selected.clear(); state.mode=''; updateModeButtons(); render(); };
         const open = safeText('button', ''); open.type='button'; open.className='cp-folder-open';
-        open.append(safeText('strong', folder.name), safeText('small', state.presets.filter(p => p.folderId === folder.id).length + ' presets'));
+        const iconWrap=document.createElement('span'); iconWrap.className='cp-folder-icon';
+        const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+        icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
+        const iconPath=document.createElementNS('http://www.w3.org/2000/svg','path');
+        iconPath.setAttribute('d','M3 6.5h6l2 2H21v9.5H3z');
+        icon.append(iconPath); iconWrap.append(icon);
+        const divider=document.createElement('span'); divider.className='cp-folder-divider'; divider.setAttribute('aria-hidden','true');
+        open.append(iconWrap,divider,safeText('strong', folder.name));
         let clickTimer = null, highlightTimer = null;
         open.addEventListener('click', () => {
           if (clickTimer) {
