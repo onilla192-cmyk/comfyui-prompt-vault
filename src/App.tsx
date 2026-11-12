@@ -1,0 +1,3613 @@
+/**
+ * Main application screen and UI state for ComfyUI Console.
+ * Connects the prompt/settings interface to workflow creation and ComfyUI API calls,
+ * and manages generation results, history, presets, prompt tools, and browser storage.
+ */
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { connectProgress, getHistory, queuePrompt, uploadImage, viewImageUrl, interruptGeneration, getLauncherLogs, getNodeObjectInfo } from './comfyClient'
+import { buildWorkflow } from './workflowTemplate'
+import { cacheImage, getCachedImage, deleteCachedImage, cacheFile, getCachedFile, requestPersistentStorage, ensureImageCacheDb, syncHistoryMetadata } from './imageCache'
+import './App.css'
+import { DatasetPage } from './components/DatasetPage'
+import { ComputeSettings } from './components/ComputeSettings'
+import { PromptVaultPage, type PromptVaultItem } from './components/PromptVaultPage'
+import { getPromptVaultImage, importPromptVaultItems } from './promptVaultDb'
+import { readCreatedPresets, readCreatedPresetFolders, createCreatedPreset, createCreatedPresets, createCreatedPresetFolder, updateCreatedPreset, updateCreatedPresetFolder, deleteCreatedPresets, deleteCreatedPresetFolder, moveCreatedPresetsToFolder, exportCreatedPresets, exportCreatedPresetFolder, importCreatedPresets, importCreatedPresetFolder, type CreatedPreset, type CreatedPresetFolder, type PresetThumbnail } from './createdPresetsDb'
+
+type Status = 'idle' | 'queued' | 'running' | 'done' | 'error' | 'cancelling'
+interface ResultImage { id: string; url: string; mediaType?: 'image' | 'video'; promptId: string; prompt?: string; hookPrompts?: { name: string; text: string }[]; cfg?: number; steps?: number; megapixels?: number; width?: number; height?: number; aspectRatio?: string; maxDimension?: number; createdAt?: number }
+const HISTORY_PAGE_SIZE = 6
+interface CharacterImage { previewUrl: string; comfyName?: string; fileName: string; cacheKey: string }
+interface PromptLabel { id: string; name: string; text: string; createdAt: number }
+interface MasterPrompt { id: string; name: string; text: string; enabled: boolean }
+interface HookPrompt { id: string; name: string; text: string; enabled: boolean }
+interface ErrorLogEntry { id: string; timestamp: number; message: string }
+interface CreatedPresetEditor { mode: 'create' | 'edit'; id: string | null; title: string; prompt: string; thumbnail: PresetThumbnail | null; folderId: string | null }
+
+const MAX_PRESET_THUMBNAIL_BYTES = 20 * 1024 * 1024
+const MAX_PRESET_THUMBNAIL_PIXELS = 24_000_000
+
+async function compressPresetThumbnail(file: File): Promise<PresetThumbnail> {
+  if (!file.type.startsWith('image/')) throw new Error('Choose an image file for the thumbnail.')
+  if (file.size > MAX_PRESET_THUMBNAIL_BYTES) throw new Error('Choose an image smaller than 20 MB.')
+
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file)
+  } catch {
+    throw new Error('This image could not be opened. Try a PNG, JPEG, or WebP image.')
+  }
+  try {
+    const { width, height } = bitmap
+    if (!width || !height || width * height > MAX_PRESET_THUMBNAIL_PIXELS) {
+      throw new Error('Choose an image with dimensions up to 24 megapixels.')
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not prepare the thumbnail for compression.')
+    context.drawImage(bitmap, 0, 0, width, height)
+    const compressedBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not compress the thumbnail.')), 'image/webp', 0.82)
+    })
+    const savedBlob = compressedBlob.size < file.size ? compressedBlob : file
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read the thumbnail.'))
+      reader.onerror = () => reject(reader.error || new Error('Could not read the thumbnail.'))
+      reader.readAsDataURL(savedBlob)
+    })
+    return { dataUrl, width, height, type: savedBlob.type || file.type, size: savedBlob.size }
+  } finally {
+    bitmap.close()
+  }
+}
+
+const ASPECT_RATIOS = ['1:1 (Square)', '4:3', '3:2', '16:9', '2:3', '3:4', '9:16', '21:9', '9:21']
+const SCHEDULERS = ['normal', 'karras', 'exponential', 'sgm_uniform', 'simple', 'ddim_uniform', 'beta']
+const DEFAULT_UNET_NAME = 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'
+const DEFAULT_CLIP_NAME = 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'
+const DEFAULT_VAE_NAME = 'minimax_h3_video_vae_int8_convrot.safetensors'
+const DEFAULT_UPSCALE_METHOD = 'area'
+const FALLBACK_UPSCALE_METHODS = ['nearest-exact', 'bilinear', 'area', 'bicubic', 'lanczos']
+const PROMPT_BUILDER_LABELS = [
+  'BODY EFFECTS', 'CLOTHING', 'NIPPLES', 'BREASTS', 'HEAD ANGLE', 'LIPS', 'HAIR DETAILS', 'HANDS',
+  'EYES', 'CAMERA', 'PRESERVATION', 'MOUTH', 'POSTURE', 'BODY DIRECTION', 'IMAGE EDIT', 'WATERMARKS',
+]
+
+function imagePath(name: string, subfolder = '') { return subfolder ? `${subfolder}/${name}` : name }
+
+const IMAGE_PROMPTS = {
+  one: '<image_1> is identified as Figure A, subject from the source image',
+  two: '<image_2> is identified as Figure B, subject from the source image',
+}
+
+const DEFAULT_MASTER_PROMPTS: MasterPrompt[] = [
+  { id: 'master-figure-a', name: 'Figure A', text: IMAGE_PROMPTS.one, enabled: true },
+  { id: 'master-preservation', name: 'Preservation', text: 'Preserve the subject’s identity, facial features, body proportions, and defining visual characteristics.', enabled: true },
+]
+
+function addImagePrompt(current: string, line: string) {
+  const imageLines = Object.values(IMAGE_PROMPTS).filter((imageLine) => imageLine === line || current.includes(imageLine))
+  const uniqueImageLines = [...new Set(imageLines)]
+  const remaining = current
+    .split('\n')
+    .filter((part) => !Object.values(IMAGE_PROMPTS).includes(part.trim()))
+    .join('\n')
+    .trim()
+  const top = uniqueImageLines.join('\n')
+  return remaining ? `${top}\n\n${remaining}` : top
+}
+
+function removeImagePrompt(current: string, line: string) {
+  return current
+    .split('\n')
+    .filter((part) => part.trim() !== line)
+    .join('\n')
+    .trim()
+}
+
+const STORAGE_KEY = 'comfyui-console-state-v4'
+const GENERATION_PROMPT_KEY = 'comfyui-generation-prompts-v1'
+
+function readGenerationPrompt(promptId: string) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(GENERATION_PROMPT_KEY) || '{}')
+    const value = stored[promptId]
+    return value && typeof value.prompt === 'string' ? value : null
+  } catch { return null }
+}
+
+function saveGenerationPrompt(promptId: string, value: { prompt: string; hookPrompts: { name: string; text: string }[]; cfg: number; steps: number; megapixels: number; aspectRatio: string; maxDimension: number }) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(GENERATION_PROMPT_KEY) || '{}')
+    stored[promptId] = value
+    const entries = Object.entries(stored).slice(-100)
+    localStorage.setItem(GENERATION_PROMPT_KEY, JSON.stringify(Object.fromEntries(entries)))
+  } catch (error) { console.warn('Could not persist generation prompt metadata', error) }
+}
+
+
+function withHistoryIds(items: ResultImage[]): ResultImage[] {
+  return items.map((item, index) => ({ ...item, id: item.id || `${item.promptId || 'history'}-${item.createdAt || Date.now()}-${index}-${Math.random().toString(36).slice(2)}` }))
+}
+
+function withLabelIds(items: PromptLabel[]): PromptLabel[] {
+  return items.map((item, index) => ({ ...item, id: item.id || `label-${item.createdAt || Date.now()}-${index}-${Math.random().toString(36).slice(2)}`, createdAt: item.createdAt || Date.now() }))
+}
+
+function loadSavedState(): any {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') } catch { return {} }
+}
+
+export default function App() {
+  // Read persisted state once. Parsing the full history on every render blocks interactions as it grows.
+  const [saved] = useState(() => loadSavedState())
+  const savedResults = useMemo(() => withHistoryIds(Array.isArray(saved.results) ? saved.results : []), [saved.results])
+  const savedTrash = useMemo(() => withHistoryIds(Array.isArray(saved.trash) ? saved.trash : []), [saved.trash])
+  const savedPromptLabels = useMemo(() => withLabelIds(Array.isArray(saved.promptLabels) ? saved.promptLabels : []), [saved.promptLabels])
+  const savedErrorLogs: ErrorLogEntry[] = Array.isArray(saved.errorLogs) ? saved.errorLogs.filter((item: unknown): item is ErrorLogEntry => !!item && typeof item === 'object' && typeof (item as ErrorLogEntry).message === 'string').slice(-100) : []
+  const savedPromptLabelTrash = withLabelIds(Array.isArray(saved.promptLabelTrash) ? saved.promptLabelTrash : [])
+  const savedHookPrompts: HookPrompt[] = Array.isArray(saved.hookPrompts)
+    ? saved.hookPrompts.filter((item: unknown): item is HookPrompt => !!item && typeof item === 'object' && typeof (item as HookPrompt).id === 'string' && typeof (item as HookPrompt).name === 'string' && typeof (item as HookPrompt).text === 'string').map((item: HookPrompt) => ({ ...item, enabled: item.enabled !== false }))
+    : []
+  const savedMasterPrompts: MasterPrompt[] = Array.isArray(saved.masterPrompts)
+    ? saved.masterPrompts
+        .filter((item: unknown): item is MasterPrompt => !!item && typeof item === 'object' && typeof (item as MasterPrompt).id === 'string' && typeof (item as MasterPrompt).name === 'string' && typeof (item as MasterPrompt).text === 'string')
+        .map((item: MasterPrompt) => ({ ...item, enabled: item.enabled !== false }))
+    : DEFAULT_MASTER_PROMPTS
+  const [prompt, setPrompt] = useState(() => {
+    const nav = performance.getEntriesByType?.('navigation')?.[0] as PerformanceNavigationTiming | undefined
+    const isReload = nav?.type === 'reload' || (nav?.type == null && performance.navigation?.type === 1)
+    return isReload ? (saved.prompt ?? '') : ''
+  })
+  useEffect(() => {
+    const handleHistoryStorageUpdated = () => {
+      try {
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+        setResults(withHistoryIds(Array.isArray(current.results) ? current.results : []))
+        setTrash(withHistoryIds(Array.isArray(current.trash) ? current.trash : []))
+        setHistoryPage(1)
+      } catch {}
+    }
+    window.addEventListener('history-storage-updated', handleHistoryStorageUpdated)
+    return () => window.removeEventListener('history-storage-updated', handleHistoryStorageUpdated)
+  }, [])
+
+  useEffect(() => {
+    const handleHistorySendToMainPrompt = (event: Event) => {
+      const customEvent = event as CustomEvent<string>
+      if (typeof customEvent.detail === 'string') setPrompt(customEvent.detail)
+    }
+    window.addEventListener('history-send-to-main-prompt', handleHistorySendToMainPrompt)
+    return () => {
+      window.removeEventListener('history-send-to-main-prompt', handleHistorySendToMainPrompt)
+    }
+  }, [])
+
+  const [promptLabelBlock, setPromptLabelBlock] = useState('')
+  const [promptBuilderOpen, setPromptBuilderOpen] = useState(() => saved.promptBuilderOpen ?? false)
+  const [promptBuilderValues, setPromptBuilderValues] = useState<Record<string, string>>(() => saved.promptBuilderValues && typeof saved.promptBuilderValues === 'object' ? saved.promptBuilderValues : {})
+  const [activePromptBuilderLabel, setActivePromptBuilderLabel] = useState<string | null>(null)
+  const [disabledPromptBuilderLabels, setDisabledPromptBuilderLabels] = useState<string[]>(() => Array.isArray(saved.disabledPromptBuilderLabels) ? saved.disabledPromptBuilderLabels : [])
+  const [promptBuilderPageOpen, setPromptBuilderPageOpen] = useState(false)
+  const [promptExpanded, setPromptExpanded] = useState(false)
+  const [hookPreviewExpanded, setHookPreviewExpanded] = useState(false)
+  const [promptHeaderMenuOpen, setPromptHeaderMenuOpen] = useState(false)
+  const [promptBuilderLabels, setPromptBuilderLabels] = useState<string[]>(() => {
+    if (Array.isArray(saved.promptBuilderLabels)) {
+      return saved.promptBuilderLabels.filter((label: unknown): label is string => typeof label === 'string' && label.trim().length > 0)
+    }
+    return [...PROMPT_BUILDER_LABELS]
+  })
+  const [masterPrompts, setMasterPrompts] = useState<MasterPrompt[]>(savedMasterPrompts)
+  const [hookPrompts, setHookPrompts] = useState<HookPrompt[]>(savedHookPrompts)
+  const [hookPromptsPageOpen, setHookPromptsPageOpen] = useState(false)
+  const [hookPromptEditing, setHookPromptEditing] = useState<HookPrompt | null>(null)
+  const [masterPromptsPageOpen, setMasterPromptsPageOpen] = useState(false)
+  const [masterPromptEditing, setMasterPromptEditing] = useState<MasterPrompt | null>(null)
+  const [promptBuilderPreviewOpen, setPromptBuilderPreviewOpen] = useState(false)
+  const [draggingPromptBuilderLabel, setDraggingPromptBuilderLabel] = useState<string | null>(null)
+  const [promptBuilderDragPosition, setPromptBuilderDragPosition] = useState<{ x: number; y: number } | null>(null)
+  const promptBuilderListRef = useRef<HTMLDivElement | null>(null)
+  const promptBuilderDragTimer = useRef<number | null>(null)
+  const promptBuilderDragRaf = useRef<number | null>(null)
+  const promptBuilderHoldTimer = useRef<number | null>(null)
+  const promptBuilderDragY = useRef(0)
+  const promptBuilderDragX = useRef(0)
+  const promptBuilderDragLabelRef = useRef<string | null>(null)
+  const promptBuilderDragPointerRef = useRef<number | null>(null)
+  const promptBuilderDragActiveRef = useRef(false)
+  const promptBuilderLastTargetRef = useRef<string | null>(null)
+  const promptBuilderLastInsertIndexRef = useRef<number | null>(null)
+  const [activePromptLabelIds, setActivePromptLabelIds] = useState<string[]>(() => {
+    const nav = performance.getEntriesByType?.('navigation')?.[0] as PerformanceNavigationTiming | undefined
+    const isReload = nav?.type === 'reload' || (nav?.type == null && performance.navigation?.type === 1)
+    return isReload && Array.isArray(saved.activePromptLabelIds) ? saved.activePromptLabelIds : []
+  })
+  const [promptLabels, setPromptLabels] = useState<PromptLabel[]>(savedPromptLabels)
+  const [promptLabelTrash, setPromptLabelTrash] = useState<PromptLabel[]>(savedPromptLabelTrash)
+  const [status, setStatus] = useState<Status>(saved.promptId ? 'running' : 'idle')
+  const [progress, setProgress] = useState<{ value: number; max: number } | null>(saved.progress ?? null)
+  const [generationFocused, setGenerationFocused] = useState(false)
+  const [viewResultsDismissed, setViewResultsDismissed] = useState(false)
+  const [showInlineResults, setShowInlineResults] = useState(false)
+  const [results, setResults] = useState<ResultImage[]>(savedResults)
+  const [latestResultId, setLatestResultId] = useState<string | null>(() => saved.promptId ? null : (savedResults[0]?.id ?? null))
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [errorLogs, setErrorLogs] = useState<ErrorLogEntry[]>(savedErrorLogs)
+  const [uploading, setUploading] = useState({ one: false, two: false })
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [ideasOpen, setIdeasOpen] = useState(false)
+  const [resultsOpen, setResultsOpen] = useState(false)
+  const [presetsOpen, setPresetsOpen] = useState(false)
+  const [presetColumns, setPresetColumns] = useState<1 | 2 | 3>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches ? 1 : 3
+  )
+  const nextPresetColumns: 1 | 2 | 3 = presetColumns === 3 ? 1 : (presetColumns + 1) as 1 | 2 | 3
+  const [presetActionsExpanded, setPresetActionsExpanded] = useState(false)
+  const [createdPresetEditor, setCreatedPresetEditor] = useState<CreatedPresetEditor | null>(null)
+  const [createdPresetFolders, setCreatedPresetFolders] = useState<CreatedPresetFolder[]>([])
+  const [activePresetFolderId, setActivePresetFolderId] = useState<string | null>(null)
+  const [presetMoveMode, setPresetMoveMode] = useState(false)
+  const [presetDeleteMode, setPresetDeleteMode] = useState(false)
+  const [presetDeleting, setPresetDeleting] = useState(false)
+  const [selectedPresetIds, setSelectedPresetIds] = useState<string[]>([])
+  const [moveDestinationOpen, setMoveDestinationOpen] = useState(false)
+  const [presetFolderName, setPresetFolderName] = useState<string | null>(null)
+  const [presetFolderEditor, setPresetFolderEditor] = useState<{ id: string; name: string } | null>(null)
+  const [presetDeleteConfirmation, setPresetDeleteConfirmation] = useState<CreatedPreset | null>(null)
+  const [folderDeleteConfirmation, setFolderDeleteConfirmation] = useState<CreatedPresetFolder | null>(null)
+  const [folderDeleting, setFolderDeleting] = useState(false)
+  const presetCardHoldTimer = useRef<number | null>(null)
+  const presetCardDidHold = useRef(false)
+  const presetCardPressStart = useRef<{ x: number; y: number } | null>(null)
+  const presetFolderHoldTimer = useRef<number | null>(null)
+  const presetFolderDidHold = useRef(false)
+  const presetFolderPressStart = useRef<{ x: number; y: number } | null>(null)
+  const [presetThumbnailProcessing, setPresetThumbnailProcessing] = useState(false)
+  const [createdPresetManagerMode, setCreatedPresetManagerMode] = useState<'edit' | null>(null)
+  const [createdPresets, setCreatedPresets] = useState<CreatedPreset[]>([])
+  const presetImportInputRef = useRef<HTMLInputElement | null>(null)
+  const presetFolderImportInputRef = useRef<HTMLInputElement | null>(null)
+  const presetThumbnailInputRef = useRef<HTMLInputElement | null>(null)
+  const historyImportInputRef = useRef<HTMLInputElement | null>(null)
+  const [completedPromptId, setCompletedPromptId] = useState<string | null>(null)
+  const [completedImageVisible, setCompletedImageVisible] = useState(true)
+  const completedTapTimer = useRef<number | null>(null)
+  const [completedTapState, setCompletedTapState] = useState<'idle' | 'armed' | 'confirmed'>('idle')
+  const [fullscreenResultUrl, setFullscreenResultUrl] = useState<string | null>(null)
+  const [promptLabelsSection, setPromptLabelsSection] = useState<'labels' | 'trash'>('labels')
+  const [selectedPromptLabelId, setSelectedPromptLabelId] = useState<string | null>(null)
+  const [editingPromptLabel, setEditingPromptLabel] = useState<{ id: string | null; name: string; text: string } | null>(null)
+  const promptLabelHoldTimer = useRef<number | null>(null)
+  const promptLabelTapTimer = useRef<number | null>(null)
+  const promptLabelDidHold = useRef(false)
+  const [promptLabelTapArmed, setPromptLabelTapArmed] = useState<string | null>(null)
+  const [cfg, setCfg] = useState(saved.cfg === 2.5 ? 1 : (saved.cfg ?? 1))
+  const [steps] = useState(20)
+  const [scheduler, setScheduler] = useState(saved.scheduler === 'normal' ? 'sgm_uniform' : (saved.scheduler ?? 'sgm_uniform'))
+  const [aspectRatio, setAspectRatio] = useState(saved.aspectRatio ?? '16:9')
+  const [videoDuration, setVideoDuration] = useState(saved.videoDuration ?? 5)
+  const [megapixels, setMegapixels] = useState(saved.megapixels === 0.5 || saved.megapixels === 0.2 ? 0.4 : (saved.megapixels ?? 0.4))
+  const [maxDimension, setMaxDimension] = useState(saved.maxDimension === 800 ? 860 : (saved.maxDimension ?? 860))
+  const [unetName, setUnetName] = useState(saved.unetName?.toLowerCase().includes('qwen') ? DEFAULT_UNET_NAME : (saved.unetName ?? DEFAULT_UNET_NAME))
+  const [clipName, setClipName] = useState(saved.clipName?.toLowerCase().includes('qwen') ? DEFAULT_CLIP_NAME : (saved.clipName ?? DEFAULT_CLIP_NAME))
+  const [vaeName, setVaeName] = useState(saved.vaeName?.toLowerCase().includes('qwen') ? DEFAULT_VAE_NAME : (saved.vaeName ?? DEFAULT_VAE_NAME))
+  const [upscaleMethod, setUpscaleMethod] = useState(saved.upscaleMethod === 'lanczos' ? DEFAULT_UPSCALE_METHOD : (saved.upscaleMethod ?? DEFAULT_UPSCALE_METHOD))
+  const [unetOptions, setUnetOptions] = useState<string[]>([])
+  const [clipOptions, setClipOptions] = useState<string[]>([])
+  const [vaeOptions, setVaeOptions] = useState<string[]>([])
+  const [upscaleOptions, setUpscaleOptions] = useState<string[]>(FALLBACK_UPSCALE_METHODS)
+  const [settingsOptionsLoading, setSettingsOptionsLoading] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [mainFooterVisible, setMainFooterVisible] = useState(false)
+  const [, setFooterExpanded] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [datasetOpen, setDatasetOpen] = useState(false)
+  const [promptVaultOpen, setPromptVaultOpen] = useState(false)
+  const [indexedDbInspectorOpen, setIndexedDbInspectorOpen] = useState(false)
+  const [mainSidebarOpen, setMainSidebarOpen] = useState(false)
+  const [launcherLogs, setLauncherLogs] = useState<string[]>([])
+  const [fadeImageGlow, setFadeImageGlow] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historySection, setHistorySection] = useState<'history' | 'trash'>('history')
+  const [trash, setTrash] = useState<ResultImage[]>(savedTrash)
+  const currentGenerationPrompt = useRef<{ prompt: string; hookPrompts: { name: string; text: string }[]; cfg: number; steps: number; megapixels: number; aspectRatio: string; maxDimension: number } | null>(null)
+  const cleanupProgress = useRef<null | (() => void)>(null)
+  const currentPromptId = useRef<string | null>(saved.promptId ?? null)
+  function recordErrorLog(error: unknown) {
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error)
+    const entry: ErrorLogEntry = { id: `error-${Date.now()}-${Math.random().toString(36).slice(2)}`, timestamp: Date.now(), message }
+    setErrorLogs((current) => [...current, entry].slice(-100))
+    return message
+  }
+
+
+  async function inspectIndexedDb() {
+    if (!('indexedDB' in window)) return []
+    const databaseList = typeof indexedDB.databases === 'function' ? await indexedDB.databases() : []
+    const names = databaseList.map((item) => item.name).filter((name): name is string => typeof name === 'string')
+    const output: Array<{ name: string; version: number; stores: Array<{ name: string; count: number; keyPath: string | string[] | null; autoIncrement: boolean }> }> = []
+    for (const name of names) {
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.open(name)
+        request.onsuccess = () => {
+          const db = request.result
+          const stores = Array.from(db.objectStoreNames).map((storeName) => {
+            try {
+              const tx = db.transaction(storeName, 'readonly')
+              const store = tx.objectStore(storeName)
+              const countRequest = store.count()
+              const countPromise = new Promise<number>((done) => {
+                countRequest.onsuccess = () => done(countRequest.result)
+                countRequest.onerror = () => done(-1)
+              })
+              return countPromise.then((count) => ({
+                name: storeName,
+                count,
+                keyPath: store.keyPath,
+                autoIncrement: store.autoIncrement,
+              }))
+            } catch {
+              return Promise.resolve({ name: storeName, count: -1, keyPath: null, autoIncrement: false })
+            }
+          })
+          Promise.all(stores).then((resolved) => {
+            output.push({ name, version: db.version, stores: resolved })
+            db.close()
+            resolve()
+          })
+        }
+        request.onerror = () => resolve()
+      })
+    }
+    return output
+  }
+
+  async function inspectIndexedDbKeys(databaseName: string, storeName: string): Promise<Array<{ key: string; rawKey: IDBValidKey }>> {
+    if (!('indexedDB' in window)) return []
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error || new Error('Could not open IndexedDB database.'))
+    })
+    return new Promise((resolve, reject) => {
+      const keys: Array<{ key: string; rawKey: IDBValidKey }> = []
+      let settled = false
+      const finish = (error?: unknown) => {
+        if (settled) return
+        settled = true
+        db.close()
+        if (error) reject(error)
+        else resolve(keys)
+      }
+      try {
+        const tx = db.transaction(storeName, 'readonly')
+        const request = tx.objectStore(storeName).openKeyCursor()
+        request.onsuccess = () => {
+          const cursor = request.result
+          if (!cursor) {
+            finish()
+            return
+          }
+          keys.push({ key: typeof cursor.key === 'string' ? cursor.key : JSON.stringify(cursor.key), rawKey: cursor.key })
+          cursor.continue()
+        }
+        request.onerror = () => finish(request.error || new Error('Could not read IndexedDB records.'))
+        tx.onerror = () => finish(tx.error || new Error('Could not read IndexedDB records.'))
+        tx.onabort = () => finish(tx.error || new Error('Could not read IndexedDB records.'))
+      } catch (error) {
+        finish(error)
+      }
+    })
+  }
+
+  async function permanentlyDeleteIndexedDbStore(databaseName: string, storeName: string): Promise<void> {
+    if (databaseName === 'comfyui-console-images' && (storeName === 'items' || storeName === 'archived')) {
+      try {
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+        if (storeName === 'items') current.results = []
+        if (storeName === 'archived') current.trash = []
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(current))
+        window.dispatchEvent(new Event('history-storage-updated'))
+      } catch {}
+    }
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error || new Error('Could not open IndexedDB database.'))
+    })
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const tx = db.transaction(storeName, 'readwrite')
+        tx.objectStore(storeName).clear()
+        tx.oncomplete = () => { db.close(); resolve() }
+        tx.onerror = () => { db.close(); reject(tx.error || new Error('Could not permanently delete the records.')) }
+        tx.onabort = () => { db.close(); reject(tx.error || new Error('Delete operation was aborted.')) }
+      } catch (error) {
+        db.close()
+        reject(error)
+      }
+    })
+  }
+
+  async function inspectIndexedDbRecord(databaseName: string, storeName: string, key: IDBValidKey): Promise<unknown> {
+    if (!('indexedDB' in window)) return null
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error || new Error('Could not open IndexedDB database.'))
+    })
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (error?: unknown, value?: unknown) => {
+        if (settled) return
+        settled = true
+        db.close()
+        if (error) reject(error)
+        else resolve(value)
+      }
+      try {
+        const tx = db.transaction(storeName, 'readonly')
+        const request = tx.objectStore(storeName).get(key)
+        request.onsuccess = () => finish(undefined, request.result ?? null)
+        request.onerror = () => finish(request.error || new Error('Could not read IndexedDB record.'))
+        tx.onerror = () => finish(tx.error || new Error('Could not read IndexedDB record.'))
+        tx.onabort = () => finish(tx.error || new Error('Could not read IndexedDB record.'))
+      } catch (error) {
+        finish(error)
+      }
+    })
+  }
+
+  const isBusy = status === 'queued' || status === 'running' || status === 'cancelling'
+
+  function comboOptions(data: any, nodeType: string, inputName: string): string[] {
+    const values = data?.[nodeType]?.input?.required?.[inputName]?.[0]
+    return Array.isArray(values) ? values.filter((value: unknown): value is string => typeof value === 'string') : []
+  }
+
+  async function refreshSettingsOptions() {
+    setSettingsOptionsLoading(true)
+    try {
+      const [unetInfo, clipInfo, vaeInfo, scaleInfo] = await Promise.all([
+        getNodeObjectInfo('UNETLoader'),
+        getNodeObjectInfo('CLIPLoader'),
+        getNodeObjectInfo('VAELoader'),
+        getNodeObjectInfo('ImageScaleToMaxDimension'),
+      ])
+      const nextUnet = comboOptions(unetInfo, 'UNETLoader', 'unet_name')
+      const nextClip = comboOptions(clipInfo, 'CLIPLoader', 'clip_name')
+      const nextVae = comboOptions(vaeInfo, 'VAELoader', 'vae_name')
+      const nextUpscale = comboOptions(scaleInfo, 'ImageScaleToMaxDimension', 'upscale_method')
+      if (nextUnet.length) setUnetOptions(nextUnet)
+      if (nextClip.length) setClipOptions(nextClip)
+      if (nextVae.length) setVaeOptions(nextVae)
+      if (nextUpscale.length) setUpscaleOptions(nextUpscale)
+    } catch (error) {
+      console.warn('Could not load ComfyUI settings options.', error)
+    } finally {
+      setSettingsOptionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshSettingsOptions()
+  }, [])
+
+  const refreshCreatedPresets = async () => {
+    try {
+      const [presets, folders] = await Promise.all([readCreatedPresets(), readCreatedPresetFolders()])
+      setCreatedPresets(presets)
+      setCreatedPresetFolders(folders)
+    } catch {
+      setCreatedPresets([])
+      setCreatedPresetFolders([])
+    }
+  }
+
+  async function transferVaultItemsToCreatedPresets(items: PromptVaultItem[]) {
+    const existing = await readCreatedPresets()
+    const usedTitles = new Set(existing.map((preset) => preset.title.toLocaleLowerCase()))
+    const entries: Array<{ title: string; prompt: string; thumbnail?: PresetThumbnail | null }> = []
+    for (const item of items) {
+      const baseTitle = item.name.trim() || 'Untitled Prompt'
+      let title = baseTitle
+      let suffix = 2
+      while (usedTitles.has(title.toLocaleLowerCase())) title = `${baseTitle} (${suffix++})`
+      usedTitles.add(title.toLocaleLowerCase())
+      let thumbnail: PresetThumbnail | null = null
+      const imageRef = item.imageRefs[0]
+      if (imageRef) {
+        const imageBlob = await getPromptVaultImage(imageRef.cacheKey)
+        if (imageBlob) {
+          const imageFile = new File([imageBlob], imageRef.filename || `${baseTitle}.webp`, { type: imageBlob.type || imageRef.mimeType })
+          thumbnail = await compressPresetThumbnail(imageFile)
+        }
+      }
+      entries.push({ title, prompt: item.prompt.trim() || 'No prompt provided.', thumbnail })
+    }
+    await createCreatedPresets(entries)
+    await refreshCreatedPresets()
+  }
+
+  async function transferDatasetItemsToCreatedPresets(items: PromptVaultItem[]) {
+    if (!items.length) return
+    const existing = await readCreatedPresets()
+    const usedTitles = new Set(existing.map((preset) => preset.title.toLocaleLowerCase()))
+    const titledItems = items.map((item) => {
+      const baseTitle = item.name.trim() || 'Untitled Prompt'
+      let title = baseTitle
+      let suffix = 2
+      while (usedTitles.has(title.toLocaleLowerCase())) title = `${baseTitle} (${suffix++})`
+      usedTitles.add(title.toLocaleLowerCase())
+      return { item, title }
+    })
+    const entries: Array<{ title: string; prompt: string; thumbnail?: PresetThumbnail | null }> = []
+    for (let offset = 0; offset < titledItems.length; offset += 4) {
+      const batch = await Promise.all(titledItems.slice(offset, offset + 4).map(async ({ item, title }) => {
+        const baseTitle = item.name.trim() || 'Untitled Prompt'
+        let thumbnail: PresetThumbnail | null = null
+        const imageRef = item.imageRefs[0]
+        if (imageRef) {
+          const imageBlob = await getCachedFile(imageRef.cacheKey)
+          if (imageBlob) {
+            const imageFile = new File([imageBlob], imageRef.filename || `${baseTitle}.webp`, { type: imageBlob.type || imageRef.mimeType })
+            thumbnail = await compressPresetThumbnail(imageFile)
+          }
+        }
+        return { title, prompt: item.prompt.trim() || 'No prompt provided.', thumbnail }
+      }))
+      entries.push(...batch)
+    }
+    let importedFolder = (await readCreatedPresetFolders()).find((folder) => folder.name.trim().toLocaleLowerCase() === 'imported')
+    if (!importedFolder) {
+      try {
+        importedFolder = await createCreatedPresetFolder('Imported')
+      } catch (error) {
+        importedFolder = (await readCreatedPresetFolders()).find((folder) => folder.name.trim().toLocaleLowerCase() === 'imported')
+        if (!importedFolder) throw error
+      }
+    }
+    const created = await createCreatedPresets(entries, importedFolder.id)
+    setCreatedPresetFolders((current) => current.some((folder) => folder.id === importedFolder.id)
+      ? current
+      : [...current, importedFolder].sort((a, b) => a.createdAt - b.createdAt))
+    setCreatedPresets((current) => [...current, ...created].sort((a, b) => a.createdAt - b.createdAt))
+  }
+
+  useEffect(() => {
+    void refreshCreatedPresets()
+  }, [])
+
+  async function saveCreatedPresetFromPage() {
+    if (!createdPresetEditor) return
+    try {
+      if (createdPresetEditor.mode === 'create') {
+        const created = await createCreatedPreset(createdPresetEditor.title, createdPresetEditor.prompt, createdPresetEditor.thumbnail, createdPresetEditor.folderId)
+        setCreatedPresets((current) => [...current, created].sort((a, b) => a.createdAt - b.createdAt))
+      } else if (createdPresetEditor.id) {
+        const updated = await updateCreatedPreset(createdPresetEditor.id, createdPresetEditor.title, createdPresetEditor.prompt, createdPresetEditor.thumbnail, createdPresetEditor.folderId)
+        setCreatedPresets((current) => current.map((preset) => preset.id === updated.id ? updated : preset))
+      } else {
+        throw new Error('No preset was selected for editing.')
+      }
+      setCreatedPresetEditor(null)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not save preset.')
+    }
+  }
+
+  async function deleteVisiblePresets(ids: string[], confirmation: string) {
+    const visibleIds = new Set(visiblePresets.map((preset) => preset.id))
+    const targetIds = [...new Set(ids)].filter((id) => visibleIds.has(id))
+    if (!targetIds.length || presetDeleting) return
+    if (!window.confirm(confirmation)) return
+    setPresetDeleting(true)
+    try {
+      await deleteCreatedPresets(targetIds)
+      const deletedIds = new Set(targetIds)
+      setCreatedPresets((current) => current.filter((preset) => !deletedIds.has(preset.id)))
+      setSelectedPresetIds((current) => current.filter((id) => !deletedIds.has(id)))
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete presets.')
+    } finally {
+      setPresetDeleting(false)
+    }
+  }
+
+  function deleteSelectedVisiblePresets() {
+    const selectedVisible = selectedPresetIds.filter((id) => visiblePresets.some((preset) => preset.id === id))
+    if (!selectedVisible.length) return
+    void deleteVisiblePresets(selectedVisible, `Delete ${selectedVisible.length} selected preset${selectedVisible.length === 1 ? '' : 's'} from this page? This cannot be undone.`)
+  }
+
+  function deleteAllVisiblePresets() {
+    const count = visiblePresets.length
+    if (!count) return
+    void deleteVisiblePresets(visiblePresets.map((preset) => preset.id), `Delete all ${count} preset${count === 1 ? '' : 's'} shown on this page? Folders and presets in other folders will stay untouched.`)
+  }
+
+  async function savePresetFolder() {
+    if (presetFolderName === null) return
+    try {
+      await createCreatedPresetFolder(presetFolderName)
+      setPresetFolderName(null)
+      await refreshCreatedPresets()
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not create folder.')
+    }
+  }
+
+  async function saveEditedPresetFolder() {
+    if (!presetFolderEditor) return
+    try {
+      const updated = await updateCreatedPresetFolder(presetFolderEditor.id, presetFolderEditor.name)
+      setCreatedPresetFolders((current) => current.map((folder) => folder.id === updated.id ? updated : folder))
+      setPresetFolderEditor(null)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update folder.')
+    }
+  }
+
+  async function deletePresetFolder(folder: CreatedPresetFolder) {
+    if (folderDeleting) return
+    setFolderDeleting(true)
+    try {
+      await deleteCreatedPresetFolder(folder.id)
+      setCreatedPresetFolders((current) => current.filter((item) => item.id !== folder.id))
+      setCreatedPresets((current) => current.map((preset) => preset.folderId === folder.id ? { ...preset, folderId: undefined } : preset))
+      if (activePresetFolderId === folder.id) setActivePresetFolderId(null)
+      setSelectedPresetIds([])
+      setPresetMoveMode(false)
+      setPresetDeleteMode(false)
+      setPresetFolderEditor(null)
+      setFolderDeleteConfirmation(null)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete folder.')
+    } finally {
+      setFolderDeleting(false)
+    }
+  }
+
+  async function confirmDeleteEditedPreset() {
+    const preset = presetDeleteConfirmation
+    if (!preset || presetDeleting) return
+    setPresetDeleting(true)
+    try {
+      await deleteCreatedPresets([preset.id])
+      setCreatedPresets((current) => current.filter((item) => item.id !== preset.id))
+      if (createdPresetEditor?.id === preset.id) setCreatedPresetEditor(null)
+      setPresetDeleteConfirmation(null)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete preset.')
+    } finally {
+      setPresetDeleting(false)
+    }
+  }
+
+  async function moveSelectedPresets(folderId: string | null) {
+    if (!selectedPresetIds.length) return
+    try {
+      await moveCreatedPresetsToFolder(selectedPresetIds, folderId)
+      await refreshCreatedPresets()
+      setSelectedPresetIds([])
+      setPresetMoveMode(false)
+      setPresetDeleteMode(false)
+      setMoveDestinationOpen(false)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not move presets.')
+    }
+  }
+
+  function togglePresetSelection(id: string) {
+    setSelectedPresetIds((current) => current.includes(id) ? current.filter((selected) => selected !== id) : [...current, id])
+  }
+
+  const promptBuilderHasValues = promptBuilderLabels.some((label) => promptBuilderValues[label]?.trim())
+
+  function buildPromptBuilderPrompt() {
+    const masterBlock = masterPrompts.filter((item) => item.enabled).map((item) => item.text.trim()).filter(Boolean).join('\n\n')
+    const normalBlock = promptBuilderLabels.filter((label) => !disabledPromptBuilderLabels.includes(label)).map((label) => {
+      const value = promptBuilderValues[label]?.trim()
+      return value ? label + ': ' + value : ''
+    }).filter(Boolean).join('\n')
+    return [masterBlock, normalBlock].filter(Boolean).join('\n\n')
+  }
+
+  function createPromptBuilderLabel() {
+    if (isBusy) return
+    const name = window.prompt('Label name')?.trim()
+    if (!name) return
+    if (promptBuilderLabels.some((label) => label.toLowerCase() === name.toLowerCase())) {
+      window.alert('A prompt builder label with that name already exists.')
+      return
+    }
+    setPromptBuilderLabels((current) => [...current, name])
+    setPromptBuilderValues((current) => ({ ...current, [name]: '' }))
+  }
+
+  function deletePromptBuilderLabel(label: string) {
+    if (isBusy) return
+    if (!window.confirm('Delete “' + label + '” from Prompt Builder?')) return
+    setPromptBuilderLabels((current) => current.filter((item) => item !== label))
+    setPromptBuilderValues((current) => {
+      const next = { ...current }
+      delete next[label]
+      return next
+    })
+    if (activePromptBuilderLabel === label) setActivePromptBuilderLabel(null)
+  }
+
+  function createHookPrompt() {
+    setHookPromptEditing({ id: '', name: '', text: '', enabled: true })
+  }
+
+  function saveHookPrompt() {
+    if (!hookPromptEditing) return
+    const name = hookPromptEditing.name.trim()
+    const text = hookPromptEditing.text.trim()
+    if (!name || !text) return
+    if (hookPromptEditing.id) {
+      setHookPrompts((current) => current.map((item) => item.id === hookPromptEditing.id ? { ...item, name, text } : item))
+    } else {
+      setHookPrompts((current) => [...current, { id: 'hook-' + Date.now() + '-' + Math.random().toString(36).slice(2), name, text, enabled: true }])
+    }
+    setHookPromptEditing(null)
+  }
+
+  function toggleHookPrompt(id: string) {
+    setHookPrompts((current) => current.map((item) => item.id === id ? { ...item, enabled: !item.enabled } : item))
+  }
+
+  function deleteHookPrompt(id: string) {
+    if (!window.confirm('Delete this Hook Prompt?')) return
+    setHookPrompts((current) => current.filter((item) => item.id !== id))
+  }
+
+  function moveHookPrompt(id: string, direction: -1 | 1) {
+    setHookPrompts((current) => {
+      const index = current.findIndex((item) => item.id === id)
+      const next = index + direction
+      if (index < 0 || next < 0 || next >= current.length) return current
+      const copy = [...current]
+      const [item] = copy.splice(index, 1)
+      copy.splice(next, 0, item)
+      return copy
+    })
+  }
+
+  async function moveItemsToPromptVault(items: PromptVaultItem[]) {
+    if (!items.length) return
+    await importPromptVaultItems(items)
+    window.dispatchEvent(new Event('prompt-vault-updated'))
+  }
+
+  function createMasterPrompt() {
+    if (isBusy) return
+    setMasterPromptEditing({ id: '', name: '', text: '', enabled: true })
+  }
+
+  function saveMasterPrompt() {
+    if (!masterPromptEditing) return
+    const name = masterPromptEditing.name.trim()
+    const text = masterPromptEditing.text.trim()
+    if (!name || !text) return
+    const duplicate = masterPrompts.some((item) => item.id !== masterPromptEditing.id && item.name.toLowerCase() === name.toLowerCase())
+    if (duplicate) {
+      window.alert('A master prompt with that name already exists.')
+      return
+    }
+    if (masterPromptEditing.id) {
+      setMasterPrompts((current) => current.map((item) => item.id === masterPromptEditing.id ? { ...item, name, text } : item))
+    } else {
+      setMasterPrompts((current) => [...current, { id: 'master-' + Date.now() + '-' + Math.random().toString(36).slice(2), name, text, enabled: true }])
+    }
+    setMasterPromptEditing(null)
+  }
+
+  function deleteMasterPrompt(id: string) {
+    if (!window.confirm('Delete this master prompt?')) return
+    setMasterPrompts((current) => current.filter((item) => item.id !== id))
+    if (masterPromptEditing?.id === id) setMasterPromptEditing(null)
+  }
+
+  function toggleMasterPrompt(id: string) {
+    setMasterPrompts((current) => current.map((item) => item.id === id ? { ...item, enabled: !item.enabled } : item))
+  }
+
+  function moveMasterPrompt(id: string, direction: -1 | 1) {
+    setMasterPrompts((current) => {
+      const index = current.findIndex((item) => item.id === id)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= current.length) return current
+      const next = [...current]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  function movePromptBuilderLabel(label: string, clientY: number) {
+    const list = promptBuilderListRef.current
+    if (!list) return
+
+    const rect = list.getBoundingClientRect()
+    const edge = 88
+    const distanceFromTop = clientY - rect.top
+    const distanceFromBottom = rect.bottom - clientY
+
+    if (distanceFromTop < edge) {
+      const speed = Math.min(18, Math.max(3, Math.round((edge - distanceFromTop) / 4)))
+      list.scrollTop -= speed
+    } else if (distanceFromBottom < edge) {
+      const speed = Math.min(18, Math.max(3, Math.round((edge - distanceFromBottom) / 4)))
+      list.scrollTop += speed
+    }
+
+    const items = Array.from(list.querySelectorAll<HTMLElement>("[data-prompt-builder-label]"))
+      .filter((item) => item.dataset.promptBuilderLabel !== label)
+
+    // Use item midpoints for both directions so the dragged label crosses
+    // the same threshold going down as it does going up.
+    let insertIndex = 0
+    for (const item of items) {
+      const itemRect = item.getBoundingClientRect()
+      const midpoint = itemRect.top + itemRect.height / 2
+      if (clientY >= midpoint) {
+        insertIndex += 1
+      } else {
+        break
+      }
+    }
+
+    if (insertIndex === promptBuilderLastInsertIndexRef.current) return
+    promptBuilderLastInsertIndexRef.current = insertIndex
+    promptBuilderLastTargetRef.current = items[insertIndex]?.dataset.promptBuilderLabel ?? null
+
+    setPromptBuilderLabels((current) => {
+      const next = current.filter((item) => item !== label)
+      const clampedIndex = Math.min(insertIndex, next.length)
+      next.splice(clampedIndex, 0, label)
+      return next
+    })
+  }
+  function stopPromptBuilderDrag() {
+    if (promptBuilderDragTimer.current !== null) {
+      window.clearInterval(promptBuilderDragTimer.current)
+      promptBuilderDragTimer.current = null
+    }
+    if (promptBuilderHoldTimer.current !== null) {
+      window.clearTimeout(promptBuilderHoldTimer.current)
+      promptBuilderHoldTimer.current = null
+    }
+    if (promptBuilderDragRaf.current !== null) {
+      window.cancelAnimationFrame(promptBuilderDragRaf.current)
+      promptBuilderDragRaf.current = null
+    }
+    promptBuilderDragActiveRef.current = false
+    promptBuilderDragLabelRef.current = null
+    promptBuilderDragPointerRef.current = null
+    promptBuilderLastTargetRef.current = null
+    promptBuilderLastInsertIndexRef.current = null
+    setDraggingPromptBuilderLabel(null)
+    setPromptBuilderDragPosition(null)
+  }
+
+  function startPromptBuilderDrag(label: string, event: import('react').PointerEvent<HTMLDivElement>) {
+    promptBuilderDragActiveRef.current = true
+    promptBuilderDragLabelRef.current = label
+    promptBuilderDragPointerRef.current = event.pointerId
+    promptBuilderDragY.current = event.clientY
+    promptBuilderDragX.current = event.clientX
+    promptBuilderLastTargetRef.current = null
+    promptBuilderLastInsertIndexRef.current = null
+    setDraggingPromptBuilderLabel(label)
+    setPromptBuilderDragPosition({ x: event.clientX, y: event.clientY })
+    movePromptBuilderLabel(label, event.clientY)
+
+    promptBuilderDragTimer.current = window.setInterval(() => {
+      const activeLabel = promptBuilderDragLabelRef.current
+      if (!activeLabel || !promptBuilderDragActiveRef.current) return
+      movePromptBuilderLabel(activeLabel, promptBuilderDragY.current)
+    }, 30)
+  }
+
+  if (currentPromptId.current && !currentGenerationPrompt.current) {
+    currentGenerationPrompt.current = { prompt: saved.prompt ?? '', hookPrompts: Array.isArray(saved.hookPrompts) ? saved.hookPrompts.filter((item: unknown): item is { name: string; text: string } => !!item && typeof item === 'object' && typeof (item as { name?: unknown }).name === 'string' && typeof (item as { text?: unknown }).text === 'string') : [], cfg: saved.cfg ?? 1, steps: 20, megapixels: saved.megapixels ?? 0.2, aspectRatio: saved.aspectRatio ?? '16:9', maxDimension: saved.maxDimension ?? 860 }
+  }
+
+  const [imageOne, setImageOne] = useState<CharacterImage | null>(() => null)
+  const [imageTwo, setImageTwo] = useState<CharacterImage | null>(() => null)
+  const [selectedImagesRestored, setSelectedImagesRestored] = useState(false)
+  const [showImageTwo, setShowImageTwo] = useState(() => saved.showImageTwo ?? !!saved.imageTwo)
+
+  useEffect(() => {
+    let cancelled = false
+    const restoreSelectedImages = async () => {
+      const savedImages = [
+        { savedImage: saved.imageOne, setImage: setImageOne },
+        { savedImage: saved.imageTwo, setImage: setImageTwo },
+      ]
+      for (const { savedImage, setImage } of savedImages) {
+        if (cancelled || !savedImage?.cacheKey) continue
+        const blob = await getCachedFile(savedImage.cacheKey)
+        if (cancelled || !blob) continue
+        setImage({
+          previewUrl: URL.createObjectURL(blob),
+          comfyName: savedImage.comfyName,
+          fileName: savedImage.fileName || 'Selected image',
+          cacheKey: savedImage.cacheKey,
+        })
+      }
+    }
+    void restoreSelectedImages().finally(() => {
+      if (!cancelled) setSelectedImagesRestored(true)
+    })
+    void requestPersistentStorage()
+    void ensureImageCacheDb()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedImagesRestored) return
+    const metadata = (items: ResultImage[]) => items.map((item) => ({
+      id: item.id,
+      type: 'history' as const,
+      prompt: item.prompt || '',
+      promptId: item.promptId || '',
+      cfg: item.cfg,
+      steps: item.steps,
+      megapixels: item.megapixels,
+      width: item.width,
+      height: item.height,
+      createdAt: item.createdAt,
+    }))
+    void syncHistoryMetadata(metadata(results), metadata(trash))
+  }, [selectedImagesRestored, results, trash])
+
+  useEffect(() => {
+    if (!selectedImagesRestored) return
+
+    // Debounce large state snapshots so rapid UI updates don't repeatedly block the main thread.
+    const timer = window.setTimeout(() => {
+      try {
+        const snapshot = JSON.stringify({
+          prompt, promptLabelBlock, activePromptLabelIds, promptLabels, promptLabelTrash, promptBuilderOpen, promptBuilderValues, promptBuilderLabels, disabledPromptBuilderLabels, masterPrompts, hookPrompts, results, trash,
+          imageOne: imageOne ? { ...imageOne, previewUrl: undefined } : null,
+          imageTwo: imageTwo ? { ...imageTwo, previewUrl: undefined } : null,
+          showImageTwo,
+          cfg, steps, scheduler, aspectRatio, megapixels, maxDimension, videoDuration, unetName, clipName, vaeName, upscaleMethod,
+          promptId: currentPromptId.current, progress, errorLogs: errorLogs.slice(-100),
+        })
+        localStorage.setItem(STORAGE_KEY, snapshot)
+      } catch (error) {
+        // Storage can be full or temporarily unavailable; don't let persistence failures crash UI interactions.
+        console.warn('Could not save app state to local storage.', error)
+      }
+    }, 500)
+
+    return () => window.clearTimeout(timer)
+  }, [selectedImagesRestored, prompt, promptLabelBlock, activePromptLabelIds, promptLabels, promptLabelTrash, promptBuilderOpen, promptBuilderValues, promptBuilderLabels, disabledPromptBuilderLabels, masterPrompts, results, trash, imageOne, imageTwo, showImageTwo, cfg, steps, scheduler, aspectRatio, megapixels, maxDimension, videoDuration, unetName, clipName, vaeName, upscaleMethod, progress, hookPrompts, errorLogs])
+
+  useEffect(() => {
+    if (currentPromptId.current) void waitForResult(currentPromptId.current)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const restoreImages = async () => {
+      const items = [...savedResults, ...savedTrash]
+      const cachedUrls = new Map<string, string>()
+
+      // Read cache entries first, then update React state once instead of rerendering for every image.
+      for (const item of items) {
+        if (cancelled) return
+        try {
+          const cached = await getCachedImage(item.id)
+          if (cached) cachedUrls.set(item.id, cached)
+        } catch (error) {
+          console.warn('Could not restore a cached history image.', error)
+        }
+      }
+      if (cancelled || cachedUrls.size === 0) return
+
+      const apply = (list: ResultImage[]) => {
+        let changed = false
+        const next = list.map((entry) => {
+          const cached = cachedUrls.get(entry.id)
+          if (!cached || entry.url === cached) return entry
+          changed = true
+          return { ...entry, url: cached }
+        })
+        return changed ? next : list
+      }
+      setResults(apply)
+      setTrash(apply)
+    }
+
+    void restoreImages()
+    return () => { cancelled = true }
+  }, [])
+
+
+  useEffect(() => {
+    if (!logsOpen) return
+    let cancelled = false
+    const loadLogs = async () => {
+      try {
+        const logs = await getLauncherLogs()
+        if (!cancelled) setLauncherLogs(logs)
+      } catch {}
+    }
+    void loadLogs()
+    const timer = window.setInterval(loadLogs, 1500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [logsOpen])
+
+
+  useEffect(() => {
+    const locked = logsOpen || settingsOpen || historyOpen || ideasOpen || !!selectedPromptLabelId || !!editingPromptLabel
+    const html = document.documentElement
+    const body = document.body
+    if (!locked) {
+      html.style.overflow = ''
+      body.style.overflow = ''
+      body.style.position = ''
+      body.style.top = ''
+      body.style.width = ''
+      return
+    }
+
+    const scrollY = window.scrollY
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.width = '100%'
+
+    return () => {
+      html.style.overflow = ''
+      body.style.overflow = ''
+      body.style.position = ''
+      body.style.top = ''
+      body.style.width = ''
+      window.scrollTo(0, scrollY)
+    }
+  }, [settingsOpen, historyOpen, ideasOpen, selectedPromptLabelId, editingPromptLabel])
+
+
+  function clearImage(which: 'one' | 'two') {
+    if (which === 'one') {
+      if (imageOne?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(imageOne.previewUrl)
+      setImageOne(null)
+      setPrompt((current: string) => removeImagePrompt(current, IMAGE_PROMPTS.one))
+    } else {
+      if (imageTwo?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(imageTwo.previewUrl)
+      setImageTwo(null)
+      setPrompt((current: string) => removeImagePrompt(current, IMAGE_PROMPTS.two))
+    }
+  }
+
+
+
+
+  async function handleImageChange(which: 'one' | 'two', file?: File) {
+    if (!file) return
+    setErrorMsg(null)
+    setUploading((p) => ({ ...p, [which]: true }))
+    const previewUrl = URL.createObjectURL(file)
+    // Use a unique key so a slower previous selection cannot overwrite a newer one.
+    const cacheKey = `input-${which}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const value = { previewUrl, cacheKey, fileName: file.name }
+
+    // Display the local file immediately; caching continues while the upload indicator is active.
+    if (which === 'one') setImageOne(value)
+    else setImageTwo(value)
+
+    try {
+      await cacheFile(cacheKey, file)
+    } catch (err) {
+      URL.revokeObjectURL(previewUrl)
+      // Only clear the node if it still points at this selection.
+      if (which === 'one') {
+        setImageOne((current) => current?.cacheKey === cacheKey ? null : current)
+      } else {
+        setImageTwo((current) => current?.cacheKey === cacheKey ? null : current)
+      }
+      setErrorMsg(recordErrorLog(err))
+    } finally {
+      setUploading((p) => ({ ...p, [which]: false }))
+    }
+  }
+
+  async function fetchResult(promptId: string) {
+    try {
+      const history = await getHistory(promptId)
+      const entry = history[promptId]
+      const generationSnapshot = readGenerationPrompt(promptId) ?? currentGenerationPrompt.current
+      if (!entry?.outputs) return false
+      const images: ResultImage[] = []
+      for (const nodeId of Object.keys(entry.outputs)) {
+        const nodeOutput = entry.outputs[nodeId]
+        if (nodeOutput?.images) for (const img of nodeOutput.images) {
+          const imageId = `${promptId}-${img.filename}-${img.subfolder ?? ''}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const isVideo = /\.(mp4|webm|mov|m4v|avi)$/i.test(img.filename)
+          const remoteUrl = viewImageUrl(img.filename, img.subfolder, img.type)
+          let displayUrl = remoteUrl
+          if (!isVideo) {
+            try {
+              displayUrl = await cacheImage(imageId, remoteUrl)
+            } catch {}
+          }
+          images.push({
+            id: imageId,
+            url: displayUrl,
+            ...(isVideo ? { mediaType: 'video' as const } : {}),
+            promptId,
+            prompt: generationSnapshot?.prompt ?? '',
+            hookPrompts: generationSnapshot?.hookPrompts ?? [],
+            cfg: generationSnapshot?.cfg ?? cfg,
+            steps: generationSnapshot?.steps ?? steps,
+            megapixels: generationSnapshot?.megapixels ?? megapixels,
+            aspectRatio: generationSnapshot?.aspectRatio ?? aspectRatio,
+            maxDimension: generationSnapshot?.maxDimension ?? maxDimension,
+            createdAt: Date.now(),
+          })
+        }
+        if (nodeOutput?.videos) for (const video of nodeOutput.videos) {
+          const videoId = `${promptId}-${video.filename}-${video.subfolder ?? ''}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          images.push({
+            id: videoId,
+            url: viewImageUrl(video.filename, video.subfolder, video.type),
+            mediaType: 'video',
+            promptId,
+            prompt: currentGenerationPrompt.current?.prompt ?? '',
+            hookPrompts: currentGenerationPrompt.current?.hookPrompts ?? [],
+            cfg: currentGenerationPrompt.current?.cfg ?? cfg,
+            steps: currentGenerationPrompt.current?.steps ?? steps,
+            megapixels: currentGenerationPrompt.current?.megapixels ?? megapixels,
+            aspectRatio: currentGenerationPrompt.current?.aspectRatio ?? aspectRatio,
+            maxDimension: currentGenerationPrompt.current?.maxDimension ?? maxDimension,
+            createdAt: Date.now(),
+          })
+        }
+      }
+      if (images.length) {
+        setResults((prev) => [...images, ...prev])
+        setLatestResultId(images[0].id)
+        setHistoryPage(1)
+        setStatus('done'); setProgress({ value: 20, max: 20 }); currentPromptId.current = null
+        setShowInlineResults(true)
+        setViewResultsDismissed(false)
+        setGenerationFocused(false)
+        cleanupProgress.current?.(); cleanupProgress.current = null
+        return true
+      }
+      return false
+    } catch (err) {
+      setStatus('error'); setErrorMsg(recordErrorLog(err))
+      cleanupProgress.current?.(); cleanupProgress.current = null
+      return true
+    }
+  }
+
+  async function waitForResult(promptId: string) {
+    setStatus('running')
+    cleanupProgress.current = connectProgress(promptId, (value, max) => setProgress((previous) => ({ value: Math.min(20, Math.max(previous?.value ?? 0, Math.ceil((value / max) * 20))), max: 20 })))
+    // ComfyUI is running on the user's own laptop, so generation time is not
+    // bounded by the phone/browser. Keep polling until ComfyUI reports the
+    // completed output instead of imposing an arbitrary 3-minute timeout.
+    while (currentPromptId.current === promptId) {
+      if (await fetchResult(promptId)) return
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
+
+  async function useGeneratedAsFigure(item: ResultImage, which: 'one' | 'two') {
+    if (isBusy) return
+    setErrorMsg(null)
+    setUploading((p) => ({ ...p, [which]: true }))
+    try {
+      const response = await fetch(item.url, { cache: 'no-store' })
+      if (!response.ok) throw new Error(`Could not read generated image (${response.status})`)
+      const blob = await response.blob()
+      const mime = blob.type || 'image/png'
+      const extension = mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : mime.includes('webp') ? 'webp' : 'png'
+      const file = new File([blob], `generated_${Date.now()}_${which}.${extension}`, { type: mime })
+      const cacheKey = `input-${which}`
+      await cacheFile(cacheKey, file)
+      const value: CharacterImage = {
+        previewUrl: URL.createObjectURL(blob),
+        cacheKey,
+        fileName: `Generated image (${which === 'one' ? 'Figure A' : 'Figure B'})`,
+      }
+      if (which === 'one') {
+        setImageOne(value)
+      } else {
+        setImageTwo(value)
+      }
+      setResultsOpen(false)
+      return true
+    } catch (err) {
+      setErrorMsg(recordErrorLog(err))
+      return false
+    } finally {
+      setUploading((p) => ({ ...p, [which]: false }))
+    }
+  }
+
+
+  async function handleGenerate() {
+    const mainGenerationPrompt = promptBuilderOpen ? buildPromptBuilderPrompt() : prompt.trim()
+    const hookBlock = hookPrompts.filter((item) => item.enabled).map((item) => item.text.trim()).filter(Boolean).join('\n\n')
+    const generationPrompt = hookBlock ? hookBlock + (mainGenerationPrompt ? '\n\n' + mainGenerationPrompt : '') : mainGenerationPrompt
+    if (!generationPrompt || uploading.one || uploading.two) return
+  setGenerationFocused(false)
+  setViewResultsDismissed(false)
+  setShowInlineResults(false)
+  setLatestResultId(null)
+    setErrorMsg(null); setStatus('queued'); setProgress({ value: 0, max: 20 })
+    try {
+      let imageOneName = imageOne?.comfyName
+      let imageTwoName = imageTwo?.comfyName
+      if (imageOne?.cacheKey) {
+        const blob = await getCachedFile(imageOne.cacheKey)
+        if (!blob) throw new Error('Figure A image is no longer available. Please choose it again.')
+        const file = new File([blob], imageOne.fileName, { type: blob.type || 'image/png' })
+        const uploaded = await uploadImage(file)
+        imageOneName = imagePath(uploaded.name, uploaded.subfolder)
+      }
+      if (imageTwo?.cacheKey) {
+        const blob = await getCachedFile(imageTwo.cacheKey)
+        if (!blob) throw new Error('Figure B image is no longer available. Please choose it again.')
+        const file = new File([blob], imageTwo.fileName, { type: blob.type || 'image/png' })
+        const uploaded = await uploadImage(file)
+        imageTwoName = imagePath(uploaded.name, uploaded.subfolder)
+      }
+      currentGenerationPrompt.current = { prompt: mainGenerationPrompt, hookPrompts: hookPrompts.filter((item) => item.enabled && item.text.trim()).map(({ name, text }) => ({ name, text })), cfg, steps: 20, megapixels, aspectRatio, maxDimension }
+      const workflow = buildWorkflow({
+        prompt: generationPrompt,
+        image1: imageOneName, image2: imageTwoName,
+        seed: Math.floor(Math.random() * 1_000_000_000), cfg, steps: 20, scheduler, duration: videoDuration,
+        aspectRatio, megapixels, maxDimension,
+        unetName, clipName, vaeName, upscaleMethod,
+      })
+      const { prompt_id } = await queuePrompt(workflow)
+      saveGenerationPrompt(prompt_id, currentGenerationPrompt.current)
+      currentPromptId.current = prompt_id
+      setProgress({ value: 0, max: 20 })
+      void waitForResult(prompt_id)
+    } catch (err) {
+      setStatus('error'); setErrorMsg(recordErrorLog(err))
+    }
+  }
+  async function handleCancel() {
+    if (!currentPromptId.current || cancelling) return
+    setCancelling(true)
+    setFadeImageGlow(true)
+    setStatus('cancelling')
+    try {
+      await interruptGeneration()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      currentPromptId.current = null
+      setProgress(null)
+      setStatus('idle')
+      window.setTimeout(() => setFadeImageGlow(false), 900)
+    } catch (err) {
+      setCancelling(false)
+      setStatus('error')
+      setErrorMsg(recordErrorLog(err))
+      return
+    }
+    setCancelling(false)
+  }
+
+  const isUploading = uploading.one || uploading.two
+  const percent = progress && progress.max > 0 ? Math.min(100, Math.round((progress.value / progress.max) * 100)) : 0
+
+  useEffect(() => () => cleanupProgress.current?.(), [])
+  useEffect(() => () => {
+    if (completedTapTimer.current !== null) window.clearTimeout(completedTapTimer.current)
+  }, [])
+  useEffect(() => () => {
+    if (imageOne?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(imageOne.previewUrl)
+    if (imageTwo?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(imageTwo.previewUrl)
+  }, [imageOne?.previewUrl, imageTwo?.previewUrl])
+
+  useEffect(() => () => {
+    if (promptLabelHoldTimer.current !== null) window.clearTimeout(promptLabelHoldTimer.current)
+    if (promptLabelTapTimer.current !== null) window.clearTimeout(promptLabelTapTimer.current)
+  }, [])
+  useEffect(() => () => {
+    if (presetCardHoldTimer.current !== null) window.clearTimeout(presetCardHoldTimer.current)
+  }, [])
+
+  function createPromptLabelId() {
+    return `label-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+
+  function openPromptLabelEditor(label?: PromptLabel) {
+    if (label) setEditingPromptLabel({ id: label.id, name: label.name, text: label.text })
+    else setEditingPromptLabel({ id: null, name: '', text: '' })
+  }
+
+  function savePromptLabel() {
+    if (!editingPromptLabel) return
+    const name = editingPromptLabel.name.trim() || 'Untitled Label'
+    const text = editingPromptLabel.text.trim()
+    if (!text) return
+    if (editingPromptLabel.id) {
+      const updated = { id: editingPromptLabel.id, name, text }
+      setPromptLabels((prev) => prev.map((item) => item.id === editingPromptLabel.id ? { ...item, ...updated } : item))
+      if (activePromptLabelIds.includes(editingPromptLabel.id)) {
+        const nextBlock = promptLabels
+          .map((item) => item.id === editingPromptLabel.id ? { ...item, ...updated } : item)
+          .filter((item) => activePromptLabelIds.includes(item.id))
+          .map((item) => item.text.trim())
+          .filter(Boolean)
+          .join('\n\n')
+        const oldBlock = promptLabelBlock || getLabelBlock(activePromptLabelIds)
+        let body = prompt
+        if (oldBlock && body.startsWith(oldBlock)) body = body.slice(oldBlock.length).replace(/^\n\n/, '')
+        setPrompt(nextBlock ? `${nextBlock}${body.trim() ? `\n\n${body.trim()}` : ''}` : body.trim())
+        setPromptLabelBlock(nextBlock)
+      }
+    } else {
+      setPromptLabels((prev) => [...prev, { id: createPromptLabelId(), name, text, createdAt: Date.now() }])
+    }
+    setEditingPromptLabel(null)
+  }
+
+  function deletePromptLabel(id: string) {
+    const item = promptLabels.find((x) => x.id === id)
+    if (!item) return
+    const wasActive = activePromptLabelIds.includes(id)
+    const nextIds = activePromptLabelIds.filter((x) => x !== id)
+    setPromptLabels((prev) => prev.filter((x) => x.id !== id))
+    setPromptLabelTrash((prev) => [item, ...prev])
+    setActivePromptLabelIds(nextIds)
+    if (wasActive) {
+      const nextBlock = promptLabels.filter((label) => nextIds.includes(label.id)).map((label) => label.text).filter(Boolean).join('\n\n')
+      let body = prompt
+      if (promptLabelBlock && body.startsWith(promptLabelBlock)) body = body.slice(promptLabelBlock.length).replace(/^\n\n/, '')
+      setPrompt(nextBlock ? `${nextBlock}${body.trim() ? `\n\n${body.trim()}` : ''}` : body)
+      setPromptLabelBlock(nextBlock)
+    }
+  }
+
+  function restorePromptLabel(id: string) {
+    const item = promptLabelTrash.find((x) => x.id === id)
+    if (!item) return
+    setPromptLabelTrash((prev) => prev.filter((x) => x.id !== id))
+    setPromptLabels((prev) => [...prev, item])
+  }
+
+  function permanentlyDeletePromptLabel(id: string) {
+    setPromptLabelTrash((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  function getLabelBlock(ids: string[]) {
+    return promptLabels
+      .filter((label) => ids.includes(label.id))
+      .map((label) => label.text.trim())
+      .filter(Boolean)
+      .join('\n\n')
+  }
+
+  function rebuildPromptFromLabels(nextIds: string[]) {
+    const orderedIds = promptLabels.filter((label) => nextIds.includes(label.id)).map((label) => label.id)
+    const oldBlock = promptLabelBlock || getLabelBlock(activePromptLabelIds)
+    const nextBlock = getLabelBlock(orderedIds)
+    let body = prompt
+    if (oldBlock && body.startsWith(oldBlock)) {
+      body = body.slice(oldBlock.length).replace(/^\n\n/, '')
+    } else {
+      // Fallback: remove each currently active label from the top if the saved block was stale.
+      const oldTexts = promptLabels
+        .filter((label) => activePromptLabelIds.includes(label.id))
+        .map((label) => label.text.trim())
+        .filter(Boolean)
+      for (const text of oldTexts) {
+        if (body.startsWith(text)) body = body.slice(text.length).replace(/^\n\n/, '')
+      }
+    }
+    const nextPrompt = nextBlock ? `${nextBlock}${body.trim() ? `\n\n${body.trim()}` : ''}` : body.trim()
+    setPrompt(nextPrompt)
+    setPromptLabelBlock(nextBlock)
+    setActivePromptLabelIds(orderedIds)
+  }
+
+  function sendPromptLabelToPrompt(id: string) {
+    const label = promptLabels.find((x) => x.id === id)
+    if (!label) return
+    if (activePromptLabelIds.includes(id)) return
+    rebuildPromptFromLabels([...activePromptLabelIds, id])
+  }
+
+  function removePromptLabelFromPrompt(id: string) {
+    if (!activePromptLabelIds.includes(id)) return
+    rebuildPromptFromLabels(activePromptLabelIds.filter((labelId) => labelId !== id))
+  }
+
+  function handlePresetFolderPointerDown(event: ReactPointerEvent<HTMLButtonElement>, folder: CreatedPresetFolder) {
+    presetFolderDidHold.current = false
+    if (presetMoveMode || presetDeleteMode || (event.pointerType === 'mouse' && event.button !== 0)) return
+    presetFolderPressStart.current = { x: event.clientX, y: event.clientY }
+    if (presetFolderHoldTimer.current !== null) window.clearTimeout(presetFolderHoldTimer.current)
+    presetFolderHoldTimer.current = window.setTimeout(() => {
+      presetFolderHoldTimer.current = null
+      presetFolderDidHold.current = true
+      presetFolderPressStart.current = null
+      if (navigator.vibrate) navigator.vibrate(25)
+      setPresetFolderEditor({ id: folder.id, name: folder.name })
+      setPresetActionsExpanded(false)
+    }, 650)
+  }
+
+  function handlePresetFolderPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const start = presetFolderPressStart.current
+    if (!start || presetFolderHoldTimer.current === null) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
+      window.clearTimeout(presetFolderHoldTimer.current)
+      presetFolderHoldTimer.current = null
+      presetFolderPressStart.current = null
+    }
+  }
+
+  function handlePresetFolderPointerEnd() {
+    if (presetFolderHoldTimer.current !== null) {
+      window.clearTimeout(presetFolderHoldTimer.current)
+      presetFolderHoldTimer.current = null
+    }
+    presetFolderPressStart.current = null
+  }
+
+  function handlePresetFolderClick(event: ReactMouseEvent<HTMLButtonElement>, folder: CreatedPresetFolder) {
+    if (presetFolderDidHold.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      presetFolderDidHold.current = false
+      return
+    }
+    setActivePresetFolderId(folder.id)
+    setPresetMoveMode(false)
+    setSelectedPresetIds([])
+  }
+
+  function handlePresetCardPointerDown(event: ReactPointerEvent<HTMLButtonElement>, preset: CreatedPreset) {
+    if (presetMoveMode || presetDeleteMode) {
+      presetCardDidHold.current = false
+      return
+    }
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    presetCardDidHold.current = false
+    presetCardPressStart.current = { x: event.clientX, y: event.clientY }
+    if (presetCardHoldTimer.current !== null) window.clearTimeout(presetCardHoldTimer.current)
+    presetCardHoldTimer.current = window.setTimeout(() => {
+      presetCardHoldTimer.current = null
+      presetCardDidHold.current = true
+      presetCardPressStart.current = null
+      if (navigator.vibrate) navigator.vibrate(25)
+      setCreatedPresetEditor({
+        mode: 'edit',
+        id: preset.id,
+        title: preset.title,
+        prompt: preset.prompt,
+        thumbnail: preset.thumbnail ?? null,
+        folderId: preset.folderId ?? null,
+      })
+      setPresetActionsExpanded(false)
+    }, 650)
+  }
+
+  function handlePresetCardPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const start = presetCardPressStart.current
+    if (!start || presetCardHoldTimer.current === null) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
+      window.clearTimeout(presetCardHoldTimer.current)
+      presetCardHoldTimer.current = null
+      presetCardPressStart.current = null
+    }
+  }
+
+  function handlePresetCardPointerEnd() {
+    if (presetCardHoldTimer.current !== null) {
+      window.clearTimeout(presetCardHoldTimer.current)
+      presetCardHoldTimer.current = null
+    }
+    presetCardPressStart.current = null
+  }
+
+  function handlePresetCardClick(event: ReactMouseEvent<HTMLButtonElement>, preset: CreatedPreset) {
+    if (presetCardDidHold.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      presetCardDidHold.current = false
+      return
+    }
+    if (presetMoveMode || presetDeleteMode) {
+      togglePresetSelection(preset.id)
+      return
+    }
+    setPrompt(preset.prompt)
+    setPromptBuilderOpen(false)
+    setPresetsOpen(false)
+  }
+
+  function handlePromptLabelPointerDown(id: string) {
+    promptLabelDidHold.current = false
+    if (promptLabelHoldTimer.current !== null) window.clearTimeout(promptLabelHoldTimer.current)
+    promptLabelHoldTimer.current = window.setTimeout(() => {
+      promptLabelDidHold.current = true
+      if (promptLabelTapTimer.current !== null) { window.clearTimeout(promptLabelTapTimer.current); promptLabelTapTimer.current = null }
+      setPromptLabelTapArmed(null)
+      if (navigator.vibrate) navigator.vibrate(25)
+      const label = promptLabels.find((x) => x.id === id)
+      if (label) openPromptLabelEditor(label)
+    }, 650)
+  }
+
+  function handlePromptLabelPointerUp() {
+    if (promptLabelHoldTimer.current !== null) { window.clearTimeout(promptLabelHoldTimer.current); promptLabelHoldTimer.current = null }
+  }
+
+  function handlePromptLabelTap(id: string) {
+    if (promptLabelDidHold.current) return
+    if (promptLabelTapArmed === id) {
+      if (promptLabelTapTimer.current !== null) { window.clearTimeout(promptLabelTapTimer.current); promptLabelTapTimer.current = null }
+      setPromptLabelTapArmed(null)
+      setSelectedPromptLabelId(id)
+      return
+    }
+    setPromptLabelTapArmed(id)
+    if (promptLabelTapTimer.current !== null) window.clearTimeout(promptLabelTapTimer.current)
+    promptLabelTapTimer.current = window.setTimeout(() => {
+      promptLabelTapTimer.current = null
+      setPromptLabelTapArmed(null)
+    }, 700)
+  }
+
+  async function restoreHistoryFromDataset(items: Array<{ prompt: string; images: Array<{ data: string; mimeType?: string; filename?: string }> }>) {
+    const restored: ResultImage[] = []
+    for (let index = 0; index < items.length; index++) {
+      const source = items[index]
+      for (let imageIndex = 0; imageIndex < source.images.length; imageIndex++) {
+        const image = source.images[imageIndex]
+        try {
+          const response = await fetch(image.data)
+          if (!response.ok) throw new Error('Could not read imported history image.')
+          const blob = await response.blob()
+          const id = `imported-history-${Date.now()}-${index}-${imageIndex}-${Math.random().toString(36).slice(2)}`
+          await cacheFile(id, blob)
+          restored.push({
+            id,
+            url: URL.createObjectURL(blob),
+            promptId: `imported-${Date.now()}-${index}`,
+            prompt: source.prompt || '',
+            createdAt: Date.now() - (index * 1000 + imageIndex),
+          })
+        } catch (error) {
+          console.warn('Skipping imported history image', error)
+        }
+      }
+    }
+    if (!restored.length) throw new Error('No valid images were found in this JSON.')
+    setResults((current) => [...restored, ...current])
+    setLatestResultId(restored[0].id)
+    setHistoryPage(1)
+    setStatus('done')
+  }
+
+  function updateHistoryPrompt(id: string, nextPrompt: string) {
+    setResults((prev) => prev.map((item) => item.id === id ? { ...item, prompt: nextPrompt } : item))
+    setTrash((prev) => prev.map((item) => item.id === id ? { ...item, prompt: nextPrompt } : item))
+  }
+
+  function handleCompletedImageTap(event: ReactMouseEvent<HTMLImageElement>) {
+    setFullscreenResultUrl(event.currentTarget.currentSrc || event.currentTarget.src)
+    if (completedTapTimer.current !== null) {
+      window.clearTimeout(completedTapTimer.current)
+      completedTapTimer.current = null
+      setCompletedTapState('confirmed')
+      if (navigator.vibrate) navigator.vibrate(35)
+      window.setTimeout(() => setCompletedPromptId(latestResultId), 120)
+      window.setTimeout(() => setCompletedTapState('idle'), 260)
+      return
+    }
+
+    setCompletedTapState('armed')
+    if (navigator.vibrate) navigator.vibrate(12)
+    completedTapTimer.current = window.setTimeout(() => {
+      completedTapTimer.current = null
+      setCompletedTapState('idle')
+    }, 700)
+  }
+
+  function openHistory() {
+    setHistorySection('history')
+    setHistoryPage(1)
+    setHistoryOpen(true)
+  }
+
+  async function importHistoryItem(file: File | undefined) {
+    if (!file) return
+    try {
+      const text = await file.text()
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('The selected file is not valid JSON.')
+      }
+      if (!parsed || typeof parsed !== 'object') throw new Error('This file is not a ComfyUI PWA History export.')
+      const payload = parsed as { format?: unknown; image?: { data?: unknown }; prompt?: unknown; metadata?: { createdAt?: unknown } }
+      if (payload.format !== 'comfyui-pwa-history-image') throw new Error('This JSON is not a ComfyUI PWA History export.')
+      if (!payload.image || typeof payload.image.data !== 'string' || !payload.image.data.startsWith('data:image/')) {
+        throw new Error('The export does not contain a valid image.')
+      }
+
+      const response = await fetch(payload.image.data)
+      if (!response.ok) throw new Error('Could not read the image from the export.')
+      const blob = await response.blob()
+      const id = 'imported-history-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+      await cacheFile(id, blob)
+
+      const imported: ResultImage = {
+        id,
+        url: URL.createObjectURL(blob),
+        promptId: 'imported-history',
+        prompt: typeof payload.prompt === 'string' ? payload.prompt : '',
+        createdAt: typeof payload.metadata?.createdAt === 'number' ? payload.metadata.createdAt : Date.now(),
+      }
+
+      setResults((current) => [imported, ...current])
+      setLatestResultId(imported.id)
+      setHistorySection('history')
+      setHistoryPage(1)
+      setHistoryOpen(true)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not import this history export.')
+    }
+  }
+
+  function moveToTrash(id: string) {
+    const item = results.find((x) => x.id === id)
+    if (!item) return
+    setResults((prev) => prev.filter((x) => x.id !== id))
+    setTrash((prev) => [item, ...prev])
+    setHistoryPage((page) => {
+      const remaining = results.length - 1
+      const pageCount = Math.max(1, Math.ceil(remaining / HISTORY_PAGE_SIZE))
+      return Math.min(page, pageCount)
+    })
+  }
+
+  function restoreFromTrash(id: string) {
+    const item = trash.find((x) => x.id === id)
+    if (!item) return
+    setTrash((prev) => prev.filter((x) => x.id !== id))
+    setResults((prev) => [item, ...prev])
+    setHistoryPage(1)
+  }
+
+  function permanentlyDelete(id: string) {
+    const item = trash.find((x) => x.id === id)
+    if (item?.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+    void deleteCachedImage(id)
+    setTrash((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  function deleteAllTrash() {
+    if (!trash.length) return
+    const confirmed = window.confirm('Delete all ' + trash.length + ' item' + (trash.length === 1 ? '' : 's') + ' in the Recycle Bin? This cannot be undone.')
+    if (!confirmed) return
+    for (const item of trash) {
+      if (item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+      void deleteCachedImage(item.id)
+    }
+    setTrash([])
+    setHistoryPage(1)
+  }
+
+
+  const historyPageCount = Math.max(1, Math.ceil(results.length / HISTORY_PAGE_SIZE))
+  const trashPageCount = Math.max(1, Math.ceil(trash.length / HISTORY_PAGE_SIZE))
+  const activePageCount = historySection === 'history' ? historyPageCount : trashPageCount
+  const safeHistoryPage = Math.min(historyPage, activePageCount)
+  const activeItems = historySection === 'history'
+    ? results.slice((safeHistoryPage - 1) * HISTORY_PAGE_SIZE, safeHistoryPage * HISTORY_PAGE_SIZE)
+    : trash.slice((safeHistoryPage - 1) * HISTORY_PAGE_SIZE, safeHistoryPage * HISTORY_PAGE_SIZE)
+  const activePresetFolder = createdPresetFolders.find((folder) => folder.id === activePresetFolderId) ?? null
+  const knownPresetFolderIds = new Set(createdPresetFolders.map((folder) => folder.id))
+  const visiblePresets = createdPresets.filter((preset) => activePresetFolderId
+    ? preset.folderId === activePresetFolderId
+    : !preset.folderId || !knownPresetFolderIds.has(preset.folderId))
+  const editedPreset = createdPresetEditor?.mode === 'edit'
+    ? createdPresets.find((preset) => preset.id === createdPresetEditor.id) ?? null
+    : null
+
+  return <div className="app">
+    {mainSidebarOpen && (
+      <div className="main-sidebar-backdrop" onClick={() => setMainSidebarOpen(false)}>
+        <aside className="main-sidebar" onClick={(event) => event.stopPropagation()} aria-label="Main menu">
+          <button type="button" className="main-sidebar-close" onClick={() => setMainSidebarOpen(false)} aria-label="Close menu">×</button>
+          <div className="main-sidebar-content">
+            <div className="main-sidebar-tool-list">
+              <button
+                type="button"
+                className="main-sidebar-tool history-sidebar-button"
+                onClick={() => {
+                  setMainSidebarOpen(false)
+                  openHistory()
+                  setFooterExpanded(false)
+                }}
+                aria-label="Open History"
+              >
+                <span className="main-sidebar-tool-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H20v17.5A2.5 2.5 0 0 0 17.5 17H6z"/>
+                    <path d="M6 4.5v15A2.5 2.5 0 0 0 8.5 22H20"/>
+                    <path d="M10 6h7M10 10h7"/>
+                  </svg>
+                </span>
+                <span className="main-sidebar-tool-copy">
+                  <strong>History</strong>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="main-sidebar-tool datasets-sidebar-button"
+                onClick={() => {
+                  setMainSidebarOpen(false)
+                  setDatasetOpen(true)
+                  setFooterExpanded(false)
+                  setMainFooterVisible(false)
+                }}
+                aria-label="Open Datasets"
+              >
+                <span className="main-sidebar-tool-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <ellipse cx="12" cy="5" rx="7" ry="3"/>
+                    <path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/>
+                    <path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"/>
+                  </svg>
+                </span>
+                <span className="main-sidebar-tool-copy">
+                  <strong>Datasets</strong>
+                </span>
+              </button>
+
+
+
+              <button
+                type="button"
+                className="main-sidebar-tool indexeddb-sidebar-button"
+                onClick={() => {
+                  setMainSidebarOpen(false)
+                  setIndexedDbInspectorOpen(true)
+                  setFooterExpanded(false)
+                  setMainFooterVisible(false)
+                }}
+                aria-label="Open IndexedDB"
+              >
+                <span className="main-sidebar-tool-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 5h16v14H4z"/>
+                    <path d="M8 9h8M8 12h8M8 15h5"/>
+                  </svg>
+                </span>
+                <span className="main-sidebar-tool-copy">
+                  <strong>IndexedDB</strong>
+                </span>
+              </button>
+ 
+              
+              <button type="button" className={`main-sidebar-tool hook-prompts-sidebar-button${hookPromptsPageOpen ? ' active' : ''}`} onClick={() => { setMainSidebarOpen(false); setHookPromptsPageOpen(true); setFooterExpanded(false) }} aria-label="Open Hook Prompts">
+                <span className="main-sidebar-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1.5 4.5a5 5 0 0 1-11 0L5 8Z"/><path d="M8 8 9.5 5h5L16 8M7 17l-1 3h12l-1-3"/><path d="M12 11v4"/></svg></span>
+                <span className="main-sidebar-tool-copy"><strong>Hook Prompts</strong></span>
+              </button>
+
+              <button type="button" className={`main-sidebar-tool prompt-menu-sidebar-button${promptHeaderMenuOpen ? ' active' : ''}`} onClick={() => { setMainSidebarOpen(false); setPromptHeaderMenuOpen((open) => !open); setFooterExpanded(false) }} aria-label="Open Prompt Menu" aria-expanded={promptHeaderMenuOpen}>
+                <span className="main-sidebar-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>
+                <span className="main-sidebar-tool-copy"><strong>Prompt Menu</strong></span>
+              </button>
+
+              <button type="button" className="main-sidebar-tool logs-sidebar-button" onClick={() => { setMainSidebarOpen(false); setLogsOpen(true); setFooterExpanded(false) }} aria-label="Open Launcher Logs">
+                <span className="main-sidebar-tool-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+                </span>
+                <span className="main-sidebar-tool-copy"><strong>Launcher Logs</strong></span>
+              </button>
+
+              <button type="button" className="main-sidebar-tool settings-sidebar-button" onClick={() => { setMainSidebarOpen(false); setSettingsOpen(true); setFooterExpanded(false) }} aria-label="Open Settings">
+                <span className="main-sidebar-tool-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"/><path d="m19.4 15 .1.06a1.8 1.8 0 0 1-2.47 2.47l-.06-.1a1.8 1.8 0 0 0-3.1 1.04l-.01.12a1.8 1.8 0 0 1-3.6 0l-.01-.12a1.8 1.8 0 0 0-3.1-1.04l-.06.1a1.8 1.8 0 0 1-2.47-2.47l.1-.06a1.8 1.8 0 0 0-1.04-3.1l-.12-.01a1.8 1.8 0 0 1 0-3.6l.12-.01a1.8 1.8 0 0 0 1.04-3.1l-.1-.06A1.8 1.8 0 0 1 7.09 2.65l.06.1a1.8 1.8 0 0 0 3.1-1.04l.01-.12a1.8 1.8 0 0 1 3.6 0l.01.12a1.8 1.8 0 0 0 3.1 1.04l.06-.1a1.8 1.8 0 0 1 2.47 2.47l-.1.06a1.8 1.8 0 0 0 1.04 3.1l.12.01a1.8 1.8 0 0 1 0 3.6l-.12.01A1.8 1.8 0 0 0 19.4 15Z"/></svg>
+                </span>
+                <span className="main-sidebar-tool-copy"><strong>Settings</strong></span>
+              </button>
+
+                         </div>
+          </div>
+        </aside>
+      </div>
+    )}
+
+    <header className={`app-empty-header${presetsOpen ? ' app-empty-header-hidden' : ''}`}>
+<button type="button" className="main-header-menu-button" onClick={() => setMainSidebarOpen(true)} aria-label="Open menu" title="Menu">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m7 9 5 5 5-5" />
+  </svg>
+  </button>
+    </header>
+    {logsOpen && <div className="logs-backdrop" onClick={() => setLogsOpen(false)}>
+      <section className="logs-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="logs-header">
+          <div><h2>Error &amp; Launcher Logs</h2><span>Generation errors and ComfyUI start/stop events</span></div>
+          <button className="close-btn" type="button" onClick={() => setLogsOpen(false)} aria-label="Close logs">×</button>
+        </div>
+        <div className="logs-body">
+          <div className="logs-section-title">Generation Errors</div>
+          {errorLogs.length ? [...errorLogs].reverse().map((entry) => (
+            <div className="error-log-card" key={entry.id}>
+              <time>{new Date(entry.timestamp).toLocaleString()}</time>
+              <pre>{entry.message}</pre>
+            </div>
+          )) : <div className="logs-empty">No generation errors recorded.</div>}
+          <div className="logs-section-title launcher-title">Launcher Logs</div>
+          {launcherLogs.length
+            ? launcherLogs.map((line, index) => <div className="log-line" key={`${index}-${line}`}>{line}</div>)
+            : <div className="logs-empty">No launcher logs yet.</div>}
+        </div>
+      </section>
+    </div>}
+
+    {settingsOpen && <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
+      <aside className="settings-drawer minimax-settings-drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-header"><div><h2>MiniMax H3 Settings</h2><p>Image-to-video workflow</p></div><button className="close-btn" onClick={() => setSettingsOpen(false)}>×</button></div>
+        <ComputeSettings />
+        <section className="settings-section">
+          <div className="settings-section-heading">
+            <h3>Models</h3>
+            <button type="button" className="settings-refresh-btn" onClick={() => void refreshSettingsOptions()} disabled={settingsOptionsLoading}>
+              {settingsOptionsLoading ? 'Refreshing…' : 'Refresh ComfyUI'}
+            </button>
+          </div>
+          <label className="setting"><span>MiniMax H3 diffusion model (UNET)</span><select value={unetName || 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'} onChange={(e) => setUnetName(e.target.value)}>{[...new Set(['minimax_h3_fl2va_pruned_int8_convrot.safetensors', unetName, ...unetOptions])].filter(Boolean).map((x) => <option key={x}>{x}</option>)}</select></label>
+          <label className="setting"><span>MiniMax H3 text encoder (CLIP)</span><select value={clipName || 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'} onChange={(e) => setClipName(e.target.value)}>{[...new Set(['qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors', clipName, ...clipOptions])].filter(Boolean).map((x) => <option key={x}>{x}</option>)}</select></label>
+          <label className="setting"><span>MiniMax H3 video VAE</span><select value={vaeName || 'minimax_h3_video_vae_int8_convrot.safetensors'} onChange={(e) => setVaeName(e.target.value)}>{[...new Set(['minimax_h3_video_vae_int8_convrot.safetensors', vaeName, ...vaeOptions])].filter(Boolean).map((x) => <option key={x}>{x}</option>)}</select></label>
+          <p className="settings-note">These are the three model files used by the MiniMax H3 workflow. The Qwen3VL file is H3’s text encoder—not the previous Qwen image-generation workflow.</p>
+        </section>
+        <section className="settings-section">
+          <h3>Video</h3>
+          <SettingNumber label="Duration" value={videoDuration} min={1} max={15} step={1} onChange={setVideoDuration} suffix="seconds" />
+          <label className="setting"><span>Aspect ratio</span><select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>{ASPECT_RATIOS.map((x) => <option key={x}>{x}</option>)}</select></label>
+          <div className="settings-info-row"><span>Frame rate</span><strong>24 FPS (MiniMax H3)</strong></div>
+          <div className="settings-info-row"><span>Frame count</span><strong>Auto · H3-compatible</strong></div>
+        </section>
+        <section className="settings-section">
+          <h3>Sampling</h3>
+          <div className="settings-info-row"><span>Sampling steps</span><strong>20 (MiniMax H3)</strong></div>
+          <div className="settings-info-row"><span>Sampler</span><strong>res_multistep</strong></div>
+          <div className="settings-info-row"><span>Attention</span><strong>SAGE + Spectrum (workflow)</strong></div>
+        </section>
+      </aside>
+    </div>}
+    {ideasOpen && <div className="ideas-page">
+      <div className="prompt-labels-page">
+        <div className="prompt-labels-header">
+          <div><h2>Prompt Labels</h2><span>{promptLabelsSection === 'labels' ? `${promptLabels.length} label${promptLabels.length === 1 ? '' : 's'}` : `${promptLabelTrash.length} deleted label${promptLabelTrash.length === 1 ? '' : 's'}`}</span></div>
+          <button className="close-btn" type="button" onClick={() => setIdeasOpen(false)} aria-label="Exit Prompt Labels">×</button>
+        </div>
+        <div className="prompt-labels-tabs">
+          <button type="button" className={promptLabelsSection === 'labels' ? 'active' : ''} onClick={() => setPromptLabelsSection('labels')}>Labels</button>
+          <button type="button" className={promptLabelsSection === 'trash' ? 'active' : ''} onClick={() => setPromptLabelsSection('trash')}>Recycle Bin{promptLabelTrash.length ? ` (${promptLabelTrash.length})` : ''}</button>
+        </div>
+        {promptLabelsSection === 'labels' ? <>
+          <button className="prompt-label-add" type="button" onClick={() => openPromptLabelEditor()}>+ Add Prompt Label</button>
+          <div className="prompt-label-list">
+            {promptLabels.map((label, index) => <PromptLabelButton
+              key={label.id}
+              label={label}
+              index={index}
+              armed={promptLabelTapArmed === label.id}
+              onPointerDown={() => handlePromptLabelPointerDown(label.id)}
+              onPointerUp={handlePromptLabelPointerUp}
+              onTap={() => handlePromptLabelTap(label.id)}
+            />)}
+            {!promptLabels.length && <div className="prompt-label-empty">No prompt labels yet.<br />Tap “+ Add Prompt Label” to create one.</div>}
+          </div>
+        </> : <div className="prompt-label-list prompt-label-trash-list">
+          {promptLabelTrash.map((label) => <div className="prompt-label-trash-item" key={label.id}>
+            <div><strong>{label.name}</strong><span>{label.text}</span></div>
+            <div className="prompt-label-trash-actions">
+              <button type="button" onClick={() => restorePromptLabel(label.id)}>Restore</button>
+              <button type="button" className="danger" onClick={() => permanentlyDeletePromptLabel(label.id)}>Delete</button>
+            </div>
+          </div>)}
+          {!promptLabelTrash.length && <div className="prompt-label-empty">Recycle Bin is empty.</div>}
+        </div>}
+      </div>
+    </div>}
+
+    {promptVaultOpen && (
+      <PromptVaultPage onClose={() => setPromptVaultOpen(false)} onTransferToCreatedPresets={transferVaultItemsToCreatedPresets} />
+    )}
+
+    {datasetOpen && (
+      <DatasetPage
+        onClose={() => setDatasetOpen(false)}
+        onMoveToVault={moveItemsToPromptVault}
+        onMoveToCreatedPresets={transferDatasetItemsToCreatedPresets}
+        sourceItems={results.map((item) => ({ id: item.id, prompt: item.prompt, url: item.url, createdAt: item.createdAt }))}
+        onRestoreHistory={restoreHistoryFromDataset}
+      />
+    )}
+
+    <main className={`app-main${(isBusy && generationFocused) || (status === 'done' && latestResultId && generationFocused) ? ' generation-focused' : ''}`}>
+
+      {status === 'done' && latestResultId && generationFocused && (() => {
+        const latestResult = results.find((item) => item.id === latestResultId) ?? results[0]
+        return latestResult ? (
+          <section className="generation-display generation-result-display" aria-label="Generated result">
+            <div className="generation-result-frame">{latestResult.mediaType === "video" ? <video src={latestResult.url} controls playsInline preload="metadata" /> : <img src={latestResult.url} alt="Generated result" />}</div>
+            <aside className="generation-result-details" aria-label="Generation details">
+              <div className="generation-result-heading"><span>Generation complete</span><strong>ComfyUI result</strong></div>
+              <dl className="generation-result-stats">
+                <div><dt>CFG</dt><dd>{latestResult.cfg ?? '—'}</dd></div>
+                <div><dt>Steps</dt><dd>{latestResult.steps ?? '—'}</dd></div>
+                <div><dt>Dimensions</dt><dd>{latestResult.width && latestResult.height ? `${latestResult.width} × ${latestResult.height}` : `${latestResult.maxDimension ?? maxDimension}px · ${latestResult.aspectRatio ?? aspectRatio}`}</dd></div>
+                <div><dt>Megapixels</dt><dd>{latestResult.megapixels ?? '—'} MP</dd></div>
+              </dl>
+              <div className="generation-result-prompt"><span>Prompt used</span><p>{latestResult.prompt || 'No prompt recorded.'}</p></div>
+
+              <button type="button" className="generation-result-return-button" onClick={() => setGenerationFocused(false)}>Return to main page</button>
+            </aside>
+          </section>
+        ) : null
+      })()}
+
+  <section className={`image-pickers${showImageTwo ? '' : ' single'}`}>
+        <ImagePicker glow={isBusy || fadeImageGlow} slot="image_1" label="Figure A" image={imageOne} busy={uploading.one} disabled={isBusy} onChange={(file) => void handleImageChange('one', file)} onClear={() => clearImage('one')} />
+        {showImageTwo && <ImagePicker glow={isBusy || fadeImageGlow} slot="image_2" label="Figure B" image={imageTwo} busy={uploading.two} disabled={isBusy} onChange={(file) => void handleImageChange('two', file)} onClear={() => clearImage('two')} />}
+      </section>
+      {((isBusy && progress) || (status === 'done' && latestResultId && showInlineResults && !generationFocused && !viewResultsDismissed)) && (
+        <section className="inline-generation-progress main-inline-generation-progress" aria-live="polite" aria-label={status === 'done' ? 'Generation complete' : 'Generation progress'}>
+          {status === 'done' ? <button type="button" className="inline-view-results-button" onClick={() => { setViewResultsDismissed(true); setGenerationFocused(true) }}>View results</button> : <><div className="inline-generation-step-count">Step {Math.min(20, progress?.value ?? 0)} / 20</div><div className="inline-generation-progress-track"><div style={{ width: `${percent}%` }} /></div></>}
+        </section>
+      )}
+
+      <section className="generation-embed">
+        <div className="field">
+          <div className="prompt-field-header">
+            <label htmlFor="prompt">Prompt</label>
+            <div className="prompt-header-actions">
+              <button
+                type="button"
+                className={`prompt-footer-toggle ${mainFooterVisible ? 'visible' : 'hidden'}`}
+                onClick={() => { setMainFooterVisible((current) => !current); setFooterExpanded(false) }}
+                aria-pressed={mainFooterVisible}
+                aria-label={mainFooterVisible ? 'Hide main footer' : 'Show main footer'}
+                title={mainFooterVisible ? 'Hide main footer' : 'Show main footer'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {mainFooterVisible ? <path d="M5 9h14M5 15h14" /> : <path d="M5 12h14" />}
+                </svg>
+              </button>
+              {promptHeaderMenuOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="prompt-header-menu-backdrop"
+                    aria-label="Close prompt options"
+                    onClick={() => setPromptHeaderMenuOpen(false)}
+                  />
+                  <div className="prompt-header-menu" role="menu">
+                    <button
+                      type="button"
+                      className={`prompt-header-menu-item${promptBuilderOpen ? ' active' : ''}`}
+                      onClick={() => {
+                        setPromptBuilderOpen((open: boolean) => !open)
+                        setPromptHeaderMenuOpen(false)
+                      }}
+                      disabled={isBusy}
+                      role="menuitem"
+                    >
+                      <span className="prompt-menu-item-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M5 19 16.5 7.5" />
+                          <path d="m14 5 2-2 5 5-2 2" />
+                          <path d="M5 19h5" />
+                        </svg>
+                      </span>
+                      <span>{promptBuilderOpen ? 'Disable Prompt Builder' : 'Prompt Builder'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`prompt-header-menu-item${promptVaultOpen ? ' active' : ''}`}
+                      onClick={() => {
+                        setPromptVaultOpen(true)
+                        setPromptHeaderMenuOpen(false)
+                        setFooterExpanded(false)
+                      }}
+                      role="menuitem"
+                    >
+                      <span className="prompt-menu-item-icon vault" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M4 8h16v12H4z" />
+                          <path d="M7 8V5h10v3" />
+                          <path d="M9 12h6" />
+                          <path d="M9 16h6" />
+                        </svg>
+                      </span>
+                      <span>Prompt Vault</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="prompt-header-menu-item"
+                      onClick={() => {
+                        setIdeasOpen(true)
+                        setPromptHeaderMenuOpen(false)
+                      }}
+                      role="menuitem"
+                    >
+                      <span className="prompt-menu-item-icon idea" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M9 18h6" />
+                          <path d="M10 21h4" />
+                          <path d="M8.7 15.2C7.6 14.3 7 13 7 11.5A5 5 0 0 1 17 11.5c0 1.5-.6 2.8-1.7 3.7-.8.7-1.3 1.5-1.3 2.8h-4c0-1.3-.5-2.1-1.3-2.8Z" />
+                          <path d="M12 2v2M4.9 4.9l1.4 1.4M2 12h2M19.1 4.9l-1.4 1.4M22 12h-2" />
+                        </svg>
+                      </span>
+                      <span>Prompt Labels</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          {promptBuilderOpen ? (
+            <div className="prompt-builder">
+              <button
+                type="button"
+                className={`prompt-builder-open-btn${promptBuilderHasValues ? ' has-active-labels' : ''}`}
+                onClick={() => setPromptBuilderPageOpen(true)}
+                disabled={isBusy}
+              >
+                Prompt Builder
+              </button>
+            </div>
+          ) : (
+            <>
+              <textarea id="prompt" value={prompt} onFocus={() => { setPromptExpanded(true); setHookPreviewExpanded(false) }} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to generate..." rows={4} />
+            </>
+          )}</div>
+
+        <div className={`generation-actions${isBusy ? ' is-generating' : ''}`}>
+          <button
+            className={`results-btn add-figure-btn${showImageTwo ? ' active' : ''}`}
+            style={{ flex: '1 1 0', minWidth: 0 }}
+            type="button"
+            onClick={() => {
+              if (showImageTwo) {
+                clearImage('two')
+                setShowImageTwo(false)
+              } else {
+                setShowImageTwo(true)
+              }
+            }}
+            disabled={isBusy}
+            aria-label={showImageTwo ? 'Remove Figure B' : 'Add Figure B'}
+            title={showImageTwo ? 'Remove Figure B' : 'Add Figure B'}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <circle cx="8" cy="9" r="1.4" />
+              <path d="m5 17 4.5-4.5 3 3 2.5-2.5L19 17" />
+              <path d="M19 3v5M16.5 5.5h5" />
+            </svg>
+          </button>
+          {isBusy ? (
+            <button className="cancel-btn" onClick={() => void handleCancel()} disabled={cancelling}>
+              {cancelling ? 'Stopping…' : 'Stop generating'}
+            </button>
+          ) : (
+            <button className="generate-btn" style={{ flex: '0 0 100%', width: '100%' }} onClick={handleGenerate} disabled={isUploading || !(hookPrompts.some((item) => item.enabled && item.text.trim()) || (promptBuilderOpen ? buildPromptBuilderPrompt().trim() : prompt.trim()))}>
+              {isUploading ? 'Uploading images...' : 'Generate'}
+            </button>
+          )}
+          <button className="results-btn preset-btn" style={{ flex: '1 1 0', minWidth: 0 }} type="button" onClick={() => { void refreshCreatedPresets(); setPresetsOpen(true) }} aria-label="Open created presets" title="Created presets">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 18h6"/>
+              <path d="M10 21h4"/>
+              <path d="M8.7 15.2C7.6 14.3 7 13 7 11.5A5 5 0 0 1 17 11.5c0 1.5-.6 2.8-1.7 3.7-.8.7-1.3 1.5-1.3 2.8h-4c0-1.3-.5-2.1-1.3-2.8Z"/>
+              <path d="M12 2v2M4.9 4.9l1.4 1.4M2 12h2M19.1 4.9l-1.4 1.4M22 12h-2"/>
+            </svg>
+          </button>
+          <button className="results-btn" style={{ flex: '1 1 0', minWidth: 0 }} type="button" onClick={() => setResultsOpen(true)} aria-label="Open completed generations" title="Completed generations">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="2"/>
+              <path d="M7.5 15.5l3-3 2.5 2.5 2-2 1.5 1.5"/>
+              <circle cx="9" cy="9" r="1.2"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      {promptExpanded && (
+        <div className="prompt-editor-page" role="dialog" aria-modal="true" aria-label="Prompt editor">
+          <div className="prompt-editor-page-header">
+            <div>
+              <span className="prompt-expanded-title">Prompt</span>
+              <span className="prompt-expanded-subtitle">Full-screen editor</span>
+            </div>
+            <button type="button" className="prompt-expanded-exit-button" onClick={() => setPromptExpanded(false)} aria-label="Exit expanded prompt">EXIT PROMPT</button>
+          </div>
+          {hookPrompts.length > 0 && (
+            <button
+              type="button"
+              className={`prompt-hook-preview${hookPreviewExpanded ? ' expanded' : ' collapsed'}`}
+              aria-expanded={hookPreviewExpanded}
+              aria-label={hookPreviewExpanded ? 'Collapse Hook Prompts' : 'Expand Hook Prompts'}
+              onClick={() => setHookPreviewExpanded((open) => !open)}
+            >
+              <span className="prompt-hook-preview-title">Hook Prompts · {hookPrompts.length}</span>
+              {hookPreviewExpanded && (
+                <span className="prompt-hook-preview-content">
+                  {hookPrompts.filter((item) => item.enabled).map((item) => <span className="prompt-hook-preview-item" key={item.id}>{item.text}</span>)}
+                  <span className="prompt-hook-return" />
+                </span>
+              )}
+              {!hookPreviewExpanded && <span className="prompt-hook-preview-chevron">⌄</span>}
+            </button>
+          )}
+          <textarea
+            id="prompt-expanded-editor"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe what you want to generate..."
+            autoFocus
+          />
+        </div>
+      )}
+
+      {promptBuilderPageOpen && (
+        <section className="prompt-builder-page" aria-label="Prompt Builder">
+          <div className="prompt-builder-page-header">
+            <div>
+              <h2>Prompt Builder</h2>
+              <span>{promptBuilderLabels.length} normal label{promptBuilderLabels.length === 1 ? '' : 's'} · {masterPrompts.length} master prompt{masterPrompts.length === 1 ? '' : 's'}</span>
+            </div>
+            <button className="close-btn" type="button" onClick={() => { setPromptBuilderPageOpen(false); setActivePromptBuilderLabel(null) }} aria-label="Close Prompt Builder">×</button>
+          </div>
+          <div className="prompt-builder-page-tools">
+            <button type="button" className="prompt-builder-tool-btn master" onClick={() => setMasterPromptsPageOpen(true)} disabled={isBusy}>Master Prompts</button>
+            <button type="button" className="prompt-builder-tool-btn" onClick={createPromptBuilderLabel} disabled={isBusy}>+ Add Label</button>
+            <button type="button" className="prompt-builder-tool-btn preview" onClick={() => setPromptBuilderPreviewOpen(true)}>Preview Final Prompt</button>
+          </div>
+          <div ref={promptBuilderListRef} className={'prompt-builder-page-list' + (activePromptBuilderLabel ? ' focus-mode' : '')}>
+            {promptBuilderLabels.map((label) => {
+              if (activePromptBuilderLabel && activePromptBuilderLabel !== label) return null
+              const value = promptBuilderValues[label] ?? ''
+              const hasValue = value.trim().length > 0
+              const inputId = 'prompt-builder-page-' + label.replace(/[^A-Z0-9]+/gi, '-').toLowerCase()
+              return (
+                <div className={'prompt-builder-item' + (hasValue ? ' has-value' : '') + (draggingPromptBuilderLabel === label ? ' dragging' : '')} key={label} data-prompt-builder-label={label}>
+                  {!activePromptBuilderLabel && (
+                    <div
+                      className="prompt-builder-drag-handle"
+                      role="button"
+                      tabIndex={isBusy ? -1 : 0}
+                      aria-label={'Reorder ' + label}
+                      onPointerDown={(event) => {
+                        if (isBusy) return
+                        event.preventDefault()
+                        event.currentTarget.setPointerCapture(event.pointerId)
+                        promptBuilderDragY.current = event.clientY
+                        promptBuilderDragX.current = event.clientX
+                        promptBuilderDragPointerRef.current = event.pointerId
+                        if (promptBuilderHoldTimer.current !== null) window.clearTimeout(promptBuilderHoldTimer.current)
+                        promptBuilderHoldTimer.current = window.setTimeout(() => { startPromptBuilderDrag(label, event) }, 160)
+                      }}
+                      onPointerMove={(event) => {
+                        if (promptBuilderDragPointerRef.current !== event.pointerId) return
+                        const moved = Math.hypot(event.clientX - promptBuilderDragX.current, event.clientY - promptBuilderDragY.current)
+                        if (!promptBuilderDragActiveRef.current) {
+                          if (moved > 10) {
+                            if (promptBuilderHoldTimer.current !== null) window.clearTimeout(promptBuilderHoldTimer.current)
+                            promptBuilderHoldTimer.current = null
+                            return
+                          }
+                          return
+                        }
+                        event.preventDefault()
+                        promptBuilderDragY.current = event.clientY
+                        promptBuilderDragX.current = event.clientX
+                        if (promptBuilderDragRaf.current === null) {
+                          promptBuilderDragRaf.current = window.requestAnimationFrame(() => {
+                            promptBuilderDragRaf.current = null
+                            setPromptBuilderDragPosition({ x: promptBuilderDragX.current, y: promptBuilderDragY.current })
+                          })
+                        }
+                        movePromptBuilderLabel(label, event.clientY)
+                      }}
+                      onPointerUp={(event) => {
+                        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+                        stopPromptBuilderDrag()
+                      }}
+                      onPointerCancel={stopPromptBuilderDrag}
+                      onLostPointerCapture={stopPromptBuilderDrag}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                          event.preventDefault()
+                          setPromptBuilderLabels((current) => {
+                            const next = [...current]
+                            const index = next.indexOf(label)
+                            const target = event.key === 'ArrowUp' ? index - 1 : index + 1
+                            if (index < 0 || target < 0 || target >= next.length) return current
+                            ;[next[index], next[target]] = [next[target], next[index]]
+                            return next
+                          })
+                        }
+                      }}
+                    >⋮⋮</div>
+                  )}
+                  <div className="prompt-builder-control">
+                    <button
+                      type="button"
+                      className={'prompt-builder-label' + (hasValue ? ' has-value' : '') + (disabledPromptBuilderLabels.includes(label) ? ' disabled' : '') + (activePromptBuilderLabel === label ? ' focused' : '')}
+                      onClick={(event) => {
+                        if (isBusy) return
+                        if (event.currentTarget.dataset.holdTriggered === '1') {
+                          event.currentTarget.dataset.holdTriggered = '0'
+                          return
+                        }
+                        setDisabledPromptBuilderLabels((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        if (isBusy) return
+                        setActivePromptBuilderLabel(label)
+                      }}
+                      onPointerDown={(event) => {
+                        if (isBusy) return
+                        event.currentTarget.dataset.holdTriggered = '0'
+                        const target = event.currentTarget
+                        const timer = window.setTimeout(() => {
+                          target.dataset.holdTriggered = '1'
+                          setActivePromptBuilderLabel(label)
+                        }, 450)
+                        const cleanup = () => {
+                          window.clearTimeout(timer)
+                          target.removeEventListener('pointerup', cleanup)
+                          target.removeEventListener('pointercancel', cleanup)
+                        }
+                        target.addEventListener('pointerup', cleanup)
+                        target.addEventListener('pointercancel', cleanup)
+                      }}
+                      disabled={isBusy}
+                    >
+                      {hasValue ? label + ': ' + value : label}
+                    </button>
+                    {!activePromptBuilderLabel && <button type="button" className="prompt-builder-delete-btn" onClick={() => deletePromptBuilderLabel(label)} disabled={isBusy} aria-label={'Delete ' + label}>×</button>}
+                    {activePromptBuilderLabel === label && (
+                      <textarea
+                        id={inputId}
+                        className="prompt-builder-input prompt-builder-input-focused"
+                        value={value}
+                        onChange={(e) => setPromptBuilderValues((current) => ({ ...current, [label]: e.target.value }))}
+                        onBlur={() => setActivePromptBuilderLabel(null)}
+                        placeholder={'Enter ' + label.toLowerCase() + '...'}
+                        disabled={isBusy}
+                        autoFocus
+                        rows={8}
+                      />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            {!promptBuilderLabels.length && <div className="prompt-builder-empty">No normal labels yet. Add one above.</div>}
+          </div>
+          {draggingPromptBuilderLabel && promptBuilderDragPosition && (
+            <div className="prompt-builder-drag-ghost" style={{ left: promptBuilderDragPosition.x + 12, top: promptBuilderDragPosition.y + 12 }} aria-hidden="true">
+              {(() => {
+                const value = promptBuilderValues[draggingPromptBuilderLabel] ?? ''
+                return value.trim() ? draggingPromptBuilderLabel + ': ' + value : draggingPromptBuilderLabel
+              })()}
+            </div>
+          )}
+        </section>
+      )}
+
+      {hookPromptsPageOpen && createPortal(
+        <section className="hook-prompts-page" aria-label="Hook Prompts">
+          <div className="hook-prompts-page-header hook-prompts-minimal-header">
+            <button className="close-btn" type="button" onClick={() => { setHookPromptsPageOpen(false); setHookPromptEditing(null) }} aria-label="Close Hook Prompts">×</button>
+          </div>
+          <div className="hook-prompts-page-tools">
+            <button type="button" className="prompt-builder-tool-btn master" onClick={createHookPrompt} disabled={isBusy}>+ Add Hook Prompt</button>
+          </div>
+          <div className="hook-prompts-page-list">
+            {hookPrompts.map((item, index) => (
+              <article className={`hook-prompt-row${item.enabled ? '' : ' disabled'}`} key={item.id}>
+                <button type="button" className="hook-prompt-button" onClick={() => setHookPromptEditing(item)} disabled={isBusy}>
+                  <span className="hook-prompt-index">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="hook-prompt-card-copy">
+                    <strong>{item.name}</strong>
+                    <span>{item.text}</span>
+                  </span>
+                  <span className="hook-prompt-status">{item.enabled ? 'Included' : 'Disabled'}</span>
+                </button>
+                <div className="hook-prompt-controls">
+                  <button type="button" className={`hook-prompt-toggle${item.enabled ? ' enabled' : ' disabled'}`} onClick={() => toggleHookPrompt(item.id)} disabled={isBusy} aria-label={item.enabled ? 'Disable ' + item.name : 'Enable ' + item.name}>
+                    {item.enabled ? 'ON' : 'OFF'}
+                  </button>
+                  <div className="hook-prompt-order">
+                    <button type="button" onClick={() => moveHookPrompt(item.id, -1)} disabled={isBusy || index === 0} aria-label="Move hook prompt up">↑</button>
+                    <button type="button" onClick={() => moveHookPrompt(item.id, 1)} disabled={isBusy || index === hookPrompts.length - 1} aria-label="Move hook prompt down">↓</button>
+                  </div>
+                  <button type="button" className="hook-prompt-delete" onClick={() => deleteHookPrompt(item.id)} disabled={isBusy} aria-label={'Delete ' + item.name}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {!hookPrompts.length && <div className="prompt-builder-empty">No Hook Prompts yet. Add one above.</div>}
+          </div>
+          {hookPromptEditing && (
+            <div className="hook-prompt-editor-backdrop" onClick={() => setHookPromptEditing(null)}>
+              <section className="hook-prompt-editor" onClick={(event) => event.stopPropagation()}>
+                <div className="hook-prompt-editor-header">
+                  <div><h2>{hookPromptEditing.id ? 'Edit Hook Prompt' : 'New Hook Prompt'}</h2><span>Enabled Hook Prompts are placed first. Disabled hooks are kept for later.</span></div>
+                  <button className="close-btn" type="button" onClick={() => setHookPromptEditing(null)} aria-label="Close Hook Prompt editor">×</button>
+                </div>
+                <label>Name<input value={hookPromptEditing.name} onChange={(e) => setHookPromptEditing((current) => current ? { ...current, name: e.target.value } : current)} placeholder="Example: Preservation" autoFocus /></label>
+                <label>Prompt text<textarea value={hookPromptEditing.text} onChange={(e) => setHookPromptEditing((current) => current ? { ...current, text: e.target.value } : current)} placeholder="Enter the hook prompt text..." rows={10} /></label>
+                <div className="hook-prompt-editor-actions">
+                  <button type="button" onClick={() => setHookPromptEditing(null)}>Cancel</button>
+                  <button type="button" className="primary" onClick={saveHookPrompt} disabled={!hookPromptEditing.name.trim() || !hookPromptEditing.text.trim()}>Save</button>
+                </div>
+              </section>
+            </div>
+          )}
+        </section>,
+        document.body,
+      )}
+
+      {masterPromptsPageOpen && (
+        <section className="prompt-builder-page" aria-label="Master Prompts">
+          <div className="prompt-builder-page-header">
+            <div>
+              <h2>Master Prompts</h2>
+              <span>Always included at the top of the final prompt</span>
+            </div>
+            <button className="close-btn" type="button" onClick={() => setMasterPromptsPageOpen(false)} aria-label="Close Master Prompts">×</button>
+          </div>
+          <div className="master-prompts-page-list">
+            <button type="button" className="prompt-builder-tool-btn master" onClick={createMasterPrompt} disabled={isBusy}>+ Add Master Prompt</button>
+            {masterPrompts.map((item, index) => (
+              <div className={'master-prompt-row' + (item.enabled ? '' : ' disabled')} key={item.id}>
+                <button type="button" className="master-prompt-button" onClick={() => setMasterPromptEditing(item)} disabled={isBusy}>
+                  <strong>{item.name}</strong>
+                  <span>{item.text}</span>
+                </button>
+                <button type="button" className={'master-prompt-toggle' + (item.enabled ? ' enabled' : '')} onClick={() => toggleMasterPrompt(item.id)} disabled={isBusy} aria-label={(item.enabled ? 'Deactivate ' : 'Activate ') + item.name}>{item.enabled ? 'ON' : 'OFF'}</button>
+                <div className="master-prompt-order">
+                  <button type="button" onClick={() => moveMasterPrompt(item.id, -1)} disabled={isBusy || index === 0} aria-label={'Move ' + item.name + ' up'}>↑</button>
+                  <button type="button" onClick={() => moveMasterPrompt(item.id, 1)} disabled={isBusy || index === masterPrompts.length - 1} aria-label={'Move ' + item.name + ' down'}>↓</button>
+                </div>
+                <button type="button" className="master-prompt-delete" onClick={() => deleteMasterPrompt(item.id)} disabled={isBusy} aria-label={'Delete ' + item.name}>×</button>
+              </div>
+            ))}
+            {!masterPrompts.length && <div className="prompt-builder-empty">No master prompts yet. Add one above.</div>}
+          </div>
+          {masterPromptEditing && (
+            <div className="master-prompt-editor-backdrop" onClick={() => setMasterPromptEditing(null)}>
+              <section className="master-prompt-editor" onClick={(event) => event.stopPropagation()}>
+                <div className="master-prompt-editor-header">
+                  <div><h2>{masterPromptEditing.id ? 'Edit Master Prompt' : 'New Master Prompt'}</h2><span>Master prompts are always placed first.</span></div>
+                  <button className="close-btn" type="button" onClick={() => setMasterPromptEditing(null)} aria-label="Close master prompt editor">×</button>
+                </div>
+                <label>Button name<input value={masterPromptEditing.name} onChange={(e) => setMasterPromptEditing((current) => current ? { ...current, name: e.target.value } : current)} placeholder="Example: Lighting" autoFocus /></label>
+                <label>Prompt text<textarea value={masterPromptEditing.text} onChange={(e) => setMasterPromptEditing((current) => current ? { ...current, text: e.target.value } : current)} placeholder="Enter the prompt text..." rows={8} /></label>
+                <div className="master-prompt-editor-actions">
+                  <button type="button" onClick={() => setMasterPromptEditing(null)}>Cancel</button>
+                  <button type="button" className="primary" onClick={saveMasterPrompt} disabled={!masterPromptEditing.name.trim() || !masterPromptEditing.text.trim()}>Save</button>
+                </div>
+              </section>
+            </div>
+          )}
+        </section>
+      )}
+
+      {promptBuilderPreviewOpen && (
+        <div className="prompt-builder-preview-backdrop" onClick={() => setPromptBuilderPreviewOpen(false)}>
+          <section className="prompt-builder-preview" onClick={(event) => event.stopPropagation()}>
+            <div className="prompt-builder-preview-header">
+              <div><h2>Final Prompt</h2><span>Master prompts first, then normal labels in list order</span></div>
+              <button className="close-btn" type="button" onClick={() => setPromptBuilderPreviewOpen(false)} aria-label="Close prompt preview">×</button>
+            </div>
+            <div className="prompt-builder-preview-body"><pre>{buildPromptBuilderPrompt() || 'No prompt content yet.'}</pre></div>
+          </section>
+        </div>
+      )}
+
+      {status === 'cancelling' && <p className="cancel-text">Cancelling generation…</p>}
+      {errorMsg && <p className="error-text">{errorMsg}</p>}
+      {presetsOpen && (
+        <div className="preset-popup-backdrop" onClick={() => { setPresetsOpen(false); setPresetMoveMode(false); setPresetDeleteMode(false); setSelectedPresetIds([]); setMoveDestinationOpen(false) }}>
+          <section className="preset-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Created presets">
+            <div className="preset-popup-header">
+              <div className="preset-popup-heading">
+                <span className="preset-popup-kicker">PROMPT LIBRARY</span>
+                <div className="preset-popup-title-row">
+                  <h2>{activePresetFolder?.name ?? 'Created Presets'}</h2>
+                  <span className="preset-popup-count">{activePresetFolder ? visiblePresets.length + ' prompts' : createdPresets.length + ' saved'}</span>
+                </div>
+                <span className="preset-popup-subtitle">{activePresetFolder ? 'Folder · your saved prompts.' : 'Your saved prompts, ready to use again.'}</span>
+              </div>
+            </div>
+            <div
+              className="preset-popup-list"
+              data-columns={presetColumns}
+              style={{ gridTemplateColumns: `repeat(${presetColumns}, minmax(0, 1fr))` }}
+            >
+              {(presetMoveMode || presetDeleteMode) && (
+                <div className="preset-move-hint">
+                  {presetDeleteMode
+                    ? selectedPresetIds.length
+                      ? `${selectedPresetIds.length} selected on this page. Use Delete Selected or Delete All below.`
+                      : 'Select the presets to delete on this page. Presets in other folders are not affected.'
+                    : selectedPresetIds.length
+                      ? `${selectedPresetIds.length} selected · Tap the folder button below to choose a destination.`
+                      : 'Select one or more presets to move. Tap the folder button again when you are ready.'}
+                </div>
+              )}
+              {presetDeleteMode && (
+                <div className="preset-delete-toolbar" role="toolbar" aria-label="Delete presets">
+                  <div className="preset-delete-toolbar-copy">
+                    <strong>Delete presets</strong>
+                    <span>{selectedPresetIds.filter((id) => visiblePresets.some((preset) => preset.id === id)).length} selected · {activePresetFolder?.name ?? 'Created Presets'}</span>
+                  </div>
+                  <div className="preset-delete-toolbar-actions">
+                    <button type="button" className="preset-delete-selected" onClick={deleteSelectedVisiblePresets} disabled={presetDeleting || !selectedPresetIds.some((id) => visiblePresets.some((preset) => preset.id === id))}>
+                      {presetDeleting ? 'Deleting…' : 'Delete Selected'}
+                    </button>
+                    <button type="button" className="preset-delete-all" onClick={deleteAllVisiblePresets} disabled={presetDeleting || !visiblePresets.length}>Delete All</button>
+                    <button type="button" className="preset-delete-cancel" onClick={() => { setPresetDeleteMode(false); setSelectedPresetIds([]) }} disabled={presetDeleting}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {activePresetFolder ? (
+                <div className="preset-folder-current">
+                  <button type="button" className="preset-folder-back" onClick={() => { setActivePresetFolderId(null); setSelectedPresetIds([]) }}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-7 7 7 7M8 12h12" /></svg>
+                    <span>All presets</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="preset-folder-current-name"
+                    disabled={presetDeleteMode || presetMoveMode}
+                    onPointerDown={(event) => handlePresetFolderPointerDown(event, activePresetFolder)}
+                    onPointerMove={handlePresetFolderPointerMove}
+                    onPointerUp={handlePresetFolderPointerEnd}
+                    onPointerCancel={handlePresetFolderPointerEnd}
+                    onPointerLeave={handlePresetFolderPointerEnd}
+                    onContextMenu={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      if (presetFolderDidHold.current) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        presetFolderDidHold.current = false
+                        return
+                      }
+                      setPresetFolderEditor({ id: activePresetFolder.id, name: activePresetFolder.name })
+                    }}
+                    aria-label={`Edit ${activePresetFolder.name} folder`}
+                    title="Tap to edit or press and hold"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" /></svg>
+                    <strong>{activePresetFolder.name}</strong>
+                  </button>
+                </div>
+              ) : createdPresetFolders.length > 0 ? (
+                <div className="preset-folder-grid" aria-label="Preset folders">
+                  {createdPresetFolders.map((folder) => (
+                    <div className="preset-folder-card" key={folder.id}>
+                      <button
+                        type="button"
+                        className="preset-folder-open"
+                        onPointerDown={(event) => handlePresetFolderPointerDown(event, folder)}
+                        onPointerMove={handlePresetFolderPointerMove}
+                        onPointerUp={handlePresetFolderPointerEnd}
+                        onPointerCancel={handlePresetFolderPointerEnd}
+                        onPointerLeave={handlePresetFolderPointerEnd}
+                        onContextMenu={(event) => event.preventDefault()}
+                        onClick={(event) => handlePresetFolderClick(event, folder)}
+                        title="Tap to open or press and hold to edit"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" /></svg>
+                        <span><strong>{folder.name}</strong><small>{createdPresets.filter((preset) => preset.folderId === folder.id).length} presets</small></span>
+                        <svg className="preset-folder-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {visiblePresets.length ? visiblePresets.map((preset) => (
+                <button
+                  type="button"
+                  className={'preset-popup-item' + (presetMoveMode || presetDeleteMode ? ' preset-move-selecting' : '') + (selectedPresetIds.includes(preset.id) ? ' preset-move-selected' : '')}
+                  key={preset.id}
+                  onPointerDown={(event) => handlePresetCardPointerDown(event, preset)}
+                  onPointerMove={handlePresetCardPointerMove}
+                  onPointerUp={handlePresetCardPointerEnd}
+                  onPointerCancel={handlePresetCardPointerEnd}
+                  onPointerLeave={handlePresetCardPointerEnd}
+                  onContextMenu={(event) => event.preventDefault()}
+                  onClick={(event) => handlePresetCardClick(event, preset)}
+                >
+                  <div className="preset-popup-media">
+                    {preset.thumbnail ? (
+                      <img
+                        className="preset-popup-thumbnail"
+                        src={preset.thumbnail.dataUrl}
+                        alt=""
+                        width={preset.thumbnail.width}
+                        height={preset.thumbnail.height}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="preset-popup-thumbnail-placeholder" aria-hidden="true">
+                        <span>✦</span>
+                        <small>Prompt card</small>
+                      </div>
+                    )}
+                  </div>
+                  <div className="preset-popup-card-body">
+                    <strong>{preset.title}</strong>
+                    <span className="preset-popup-prompt">{preset.prompt}</span>
+                  </div>
+                  {(presetMoveMode || presetDeleteMode) && <span className="preset-selection-mark" aria-hidden="true">{selectedPresetIds.includes(preset.id) ? '✓' : ''}</span>}
+                </button>
+              )) : (
+                <div className="preset-popup-empty">{activePresetFolder ? 'This folder is empty. Move presets here or create a preset in this folder.' : createdPresetFolders.length ? 'No presets in the main list yet.' : 'No created presets. Create one from the Preset Actions menu.'}</div>
+              )}
+            </div>
+            <footer className="preset-popup-footer">
+              <div className="preset-popup-header-actions">
+                <button
+                  type="button"
+                  className="preset-create-button"
+                  onClick={() => { setCreatedPresetEditor({ mode: 'create', id: null, title: '', prompt: '', thumbnail: null, folderId: activePresetFolderId }); setPresetActionsExpanded(false) }}
+                  disabled={presetMoveMode || presetDeleteMode || presetDeleting}
+                  aria-label="New preset"
+                  title="New preset"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                </button>
+                <button
+                  type="button"
+                  className={'preset-move-button' + (presetMoveMode ? ' active' : '')}
+                  onClick={() => {
+                    setPresetActionsExpanded(false)
+                    if (!presetMoveMode) {
+                      setPresetDeleteMode(false)
+                      setPresetMoveMode(true)
+                      setSelectedPresetIds([])
+                    } else if (selectedPresetIds.length) {
+                      setMoveDestinationOpen(true)
+                    } else {
+                      setPresetMoveMode(false)
+                    }
+                  }}
+                  aria-label={presetMoveMode ? selectedPresetIds.length ? `Choose a folder for ${selectedPresetIds.length} selected presets` : 'Cancel moving presets' : 'Move presets'}
+                  aria-pressed={presetMoveMode}
+                  title={presetMoveMode ? selectedPresetIds.length ? 'Choose destination' : 'Cancel move' : 'Move presets'}
+                  disabled={presetDeleteMode || presetDeleting || (!presetMoveMode && !visiblePresets.length)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" /><path d="M8 13h8m-3-3 3 3-3 3" /></svg>
+                  {selectedPresetIds.length > 0 && <span className="preset-move-count">{selectedPresetIds.length}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="preset-column-toggle"
+                  onClick={() => setPresetColumns((columns) => columns === 3 ? 1 : (columns + 1) as 1 | 2 | 3)}
+                  aria-label={`Change columns. Currently ${presetColumns}, next ${nextPresetColumns}.`}
+                  title={`${presetColumns} columns`}
+                >
+                  <svg viewBox="0 0 20 18" aria-hidden="true">
+                    <rect x="1" y="2" width="5" height="14" rx="1.3" />
+                    <rect x="7.5" y="2" width="5" height="14" rx="1.3" />
+                    <rect x="14" y="2" width="5" height="14" rx="1.3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={'preset-actions-chevron' + (presetActionsExpanded ? ' active' : '')}
+                  onClick={() => setPresetActionsExpanded((open) => !open)}
+                  disabled={presetMoveMode || presetDeleteMode || presetDeleting}
+                  aria-label={presetActionsExpanded ? 'Close preset menu' : 'More preset actions'}
+                  title="More preset actions"
+                  aria-expanded={presetActionsExpanded}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
+                </button>
+                <button type="button" className="close-btn preset-popup-close" onClick={() => { setPresetsOpen(false); setPresetActionsExpanded(false); setPresetMoveMode(false); setPresetDeleteMode(false); setSelectedPresetIds([]); setMoveDestinationOpen(false) }} aria-label="Close presets" title="Close presets">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+                {presetActionsExpanded && (
+                  <div className="preset-actions-panel">
+                    <button type="button" onClick={() => { setPresetFolderName(''); setPresetActionsExpanded(false) }}>Create Folder</button>
+                    <button type="button" onClick={() => { setCreatedPresetEditor({ mode: 'create', id: null, title: '', prompt: '', thumbnail: null, folderId: activePresetFolderId }); setPresetActionsExpanded(false) }}>Create Preset</button>
+                    <button type="button" onClick={() => { if (!createdPresets.length) return; setCreatedPresetManagerMode('edit'); setPresetActionsExpanded(false) }} disabled={!createdPresets.length}>Edit Preset</button>
+                    <button type="button" onClick={() => { if (!visiblePresets.length) return; setPresetMoveMode(false); setPresetDeleteMode(true); setSelectedPresetIds([]); setPresetActionsExpanded(false) }} disabled={!visiblePresets.length}>Delete Presets</button>
+  <button type="button" onClick={() => { if (!createdPresets.length) return; exportCreatedPresets(createdPresets); setPresetActionsExpanded(false) }} disabled={!createdPresets.length}>Export Presets</button>
+  <button type="button" onClick={() => { if (!activePresetFolder || !visiblePresets.length) return; exportCreatedPresetFolder(activePresetFolder, visiblePresets); setPresetActionsExpanded(false) }} disabled={!activePresetFolder || !visiblePresets.length}>Export Folder</button>
+  <input
+                      ref={presetImportInputRef}
+                      type="file"
+                      accept="application/json,.json,text/json"
+                      hidden
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (!file) { event.currentTarget.value = ''; return }
+                        void (async () => { try { const count = await importCreatedPresets(file); await refreshCreatedPresets(); window.alert(count ? `Imported ${count} preset${count === 1 ? '' : 's'}.` : 'Those presets are already in your Created Presets.') } catch (error) { window.alert(error instanceof Error ? error.message : 'Could not import presets.') } })()
+                        event.currentTarget.value = ''
+                      }}
+                    />
+  <button type="button" onClick={() => presetImportInputRef.current?.click()}>Import JSON</button>
+  <input ref={presetFolderImportInputRef} type="file" accept="application/json,.json,text/json" hidden onChange={(event) => {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    if (!file) return
+    void (async () => {
+      try {
+        const result = await importCreatedPresetFolder(file)
+        await refreshCreatedPresets()
+        setPresetActionsExpanded(false)
+        window.alert(`Created folder “${result.folderName}” with ${result.count} preset${result.count === 1 ? '' : 's'}.`)
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not import preset folder.')
+      } finally { input.value = '' }
+    })()
+  }} />
+  <button type="button" onClick={() => presetFolderImportInputRef.current?.click()}>Import Folder</button>
+  </div>
+                )}
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {presetFolderName !== null && (
+        <div className="preset-management-backdrop" onClick={() => setPresetFolderName(null)}>
+          <section className="preset-management-panel preset-folder-editor" onClick={(event) => event.stopPropagation()}>
+            <div className="preset-management-header">
+              <div><h2>Create Folder</h2><span>Folders stay at the top of Created Presets.</span></div>
+              <button type="button" className="close-btn" onClick={() => setPresetFolderName(null)} aria-label="Close folder editor">×</button>
+            </div>
+            <label className="preset-management-field">
+              <span>Folder name</span>
+              <input autoFocus value={presetFolderName} onChange={(event) => setPresetFolderName(event.target.value)} placeholder="Folder name" onKeyDown={(event) => { if (event.key === 'Enter' && presetFolderName.trim()) void savePresetFolder() }} />
+            </label>
+            <div className="preset-management-actions">
+              <button type="button" onClick={() => setPresetFolderName(null)}>Cancel</button>
+              <button type="button" className="primary" disabled={!presetFolderName.trim()} onClick={() => void savePresetFolder()}>Create Folder</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {presetFolderEditor && (
+        <div className="preset-management-backdrop" onClick={() => setPresetFolderEditor(null)}>
+          <section className="preset-management-panel preset-folder-editor" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit preset folder">
+            <div className="preset-management-header">
+              <div><h2>Edit Folder</h2><span>Change its name or delete the folder.</span></div>
+              <button type="button" className="close-btn" onClick={() => setPresetFolderEditor(null)} aria-label="Close folder editor">×</button>
+            </div>
+            <label className="preset-management-field">
+              <span>Folder name</span>
+              <input autoFocus value={presetFolderEditor.name} onChange={(event) => setPresetFolderEditor((current) => current ? { ...current, name: event.target.value } : current)} placeholder="Folder name" onKeyDown={(event) => { if (event.key === 'Enter' && presetFolderEditor.name.trim()) void saveEditedPresetFolder() }} />
+            </label>
+            <div className="preset-management-actions preset-folder-editor-actions">
+              <button type="button" className="danger" onClick={() => {
+                const folder = createdPresetFolders.find((item) => item.id === presetFolderEditor.id)
+                if (folder) setFolderDeleteConfirmation(folder)
+              }}>Delete Folder</button>
+              <div className="preset-management-action-group">
+                <button type="button" onClick={() => setPresetFolderEditor(null)}>Cancel</button>
+                <button type="button" className="primary" disabled={!presetFolderEditor.name.trim()} onClick={() => void saveEditedPresetFolder()}>Save Changes</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {folderDeleteConfirmation && (
+        <div className="preset-confirm-backdrop" onClick={() => { if (!folderDeleting) setFolderDeleteConfirmation(null) }}>
+          <section className="preset-confirm-panel" onClick={(event) => event.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="preset-folder-delete-title">
+            <div className="preset-confirm-icon" aria-hidden="true">!</div>
+            <h2 id="preset-folder-delete-title">Delete “{folderDeleteConfirmation.name}”?</h2>
+            <p>The folder will be removed and its presets will return to the main Created Presets page.</p>
+            <div className="preset-confirm-actions">
+              <button type="button" onClick={() => setFolderDeleteConfirmation(null)} disabled={folderDeleting}>Cancel</button>
+              <button type="button" className="danger" onClick={() => void deletePresetFolder(folderDeleteConfirmation)} disabled={folderDeleting}>
+                {folderDeleting ? 'Deleting…' : 'Delete Folder'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {moveDestinationOpen && (
+        <div className="preset-management-backdrop" onClick={() => setMoveDestinationOpen(false)}>
+          <section className="preset-management-panel preset-folder-move-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="preset-management-header">
+              <div><h2>Move {selectedPresetIds.length} preset{selectedPresetIds.length === 1 ? '' : 's'}</h2><span>Choose a folder or return them to the main list.</span></div>
+              <button type="button" className="close-btn" onClick={() => setMoveDestinationOpen(false)} aria-label="Close folder picker">×</button>
+            </div>
+            <div className="preset-management-list preset-folder-destination-list">
+              <button type="button" className="preset-management-option" onClick={() => void moveSelectedPresets(null)}>
+                <span>Main Created Presets</span><span>Move here</span>
+              </button>
+              {createdPresetFolders.map((folder) => (
+                <button key={folder.id} type="button" className="preset-management-option" onClick={() => void moveSelectedPresets(folder.id)}>
+                  <span>{folder.name}</span><span>Move here</span>
+                </button>
+              ))}
+              {!createdPresetFolders.length && <div className="preset-folder-no-destinations">No folders yet. Create one from the More menu.</div>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {createdPresetEditor && (
+        <div className="preset-management-backdrop" onClick={() => setCreatedPresetEditor(null)}>
+          <section className="preset-management-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="preset-management-header">
+              <div>
+                <h2>{createdPresetEditor.mode === 'create' ? 'Create Preset' : 'Edit Preset'}</h2>
+                <span>Save changes directly to Created Presets.</span>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setCreatedPresetEditor(null)} aria-label="Close preset editor">×</button>
+            </div>
+            <label className="preset-management-field">
+              <span>Title</span>
+              <input value={createdPresetEditor.title} onChange={(event) => setCreatedPresetEditor((current) => current ? { ...current, title: event.target.value } : current)} placeholder="Preset title" />
+            </label>
+            <label className="preset-management-field">
+              <span>Prompt</span>
+              <textarea value={createdPresetEditor.prompt} onChange={(event) => setCreatedPresetEditor((current) => current ? { ...current, prompt: event.target.value } : current)} placeholder="Enter the prompt for this preset..." rows={8} />
+            </label>
+            <label className="preset-management-field">
+              <span>Folder</span>
+              <select value={createdPresetEditor.folderId ?? ''} onChange={(event) => setCreatedPresetEditor((current) => current ? { ...current, folderId: event.target.value || null } : current)}>
+                <option value="">Main Created Presets</option>
+                {createdPresetFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+              </select>
+              <small>Folders are shown without thumbnails.</small>
+            </label>
+            <div className="preset-management-field">
+              <span>Thumbnail</span>
+              <input
+                ref={presetThumbnailInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0]
+                  event.currentTarget.value = ''
+                  if (!file) return
+                  setPresetThumbnailProcessing(true)
+                  void compressPresetThumbnail(file)
+                    .then((thumbnail) => setCreatedPresetEditor((current) => current ? { ...current, thumbnail } : current))
+                    .catch((error) => window.alert(error instanceof Error ? error.message : 'Could not upload the thumbnail.'))
+                    .finally(() => setPresetThumbnailProcessing(false))
+                }}
+              />
+              <div className="preset-thumbnail-editor">
+                {createdPresetEditor.thumbnail ? (
+                  <img
+                    src={createdPresetEditor.thumbnail.dataUrl}
+                    alt="Thumbnail preview"
+                    width={createdPresetEditor.thumbnail.width}
+                    height={createdPresetEditor.thumbnail.height}
+                    decoding="async"
+                  />
+                ) : (
+                  <div className="preset-thumbnail-empty">No thumbnail attached</div>
+                )}
+                <div className="preset-thumbnail-controls">
+                  <div className="preset-thumbnail-buttons">
+                    <button type="button" onClick={() => presetThumbnailInputRef.current?.click()} disabled={presetThumbnailProcessing}>
+                      {presetThumbnailProcessing ? 'Compressing…' : createdPresetEditor.thumbnail ? 'Change Image' : 'Upload Image'}
+                    </button>
+                    {createdPresetEditor.thumbnail && (
+                      <button type="button" onClick={() => setCreatedPresetEditor((current) => current ? { ...current, thumbnail: null } : current)}>Remove</button>
+                    )}
+                  </div>
+                  <small>
+                    {createdPresetEditor.thumbnail
+                      ? `${createdPresetEditor.thumbnail.width} × ${createdPresetEditor.thumbnail.height} px · ${Math.max(1, Math.round(createdPresetEditor.thumbnail.size / 1024))} KB`
+                      : 'Images are compressed on upload while keeping their original proportions.'}
+                  </small>
+                </div>
+              </div>
+            </div>
+            <div className={'preset-management-actions' + (editedPreset ? ' preset-editor-actions' : '')}>
+              {editedPreset && <button type="button" className="danger" onClick={() => setPresetDeleteConfirmation(editedPreset)} disabled={presetDeleting}>Delete</button>}
+              <div className="preset-management-action-group">
+                <button type="button" onClick={() => setCreatedPresetEditor(null)}>Cancel</button>
+                <button type="button" className="primary" disabled={presetThumbnailProcessing || !createdPresetEditor.title.trim() || !createdPresetEditor.prompt.trim()} onClick={() => void saveCreatedPresetFromPage()}>
+                  {createdPresetEditor.mode === 'create' ? 'Save Preset' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {presetDeleteConfirmation && (
+        <div className="preset-confirm-backdrop" onClick={() => { if (!presetDeleting) setPresetDeleteConfirmation(null) }}>
+          <section className="preset-confirm-panel" onClick={(event) => event.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="preset-delete-title">
+            <div className="preset-confirm-icon" aria-hidden="true">!</div>
+            <h2 id="preset-delete-title">Delete “{presetDeleteConfirmation.title}”?</h2>
+            <p>This permanently deletes the preset. Are you sure you want to continue?</p>
+            <div className="preset-confirm-actions">
+              <button type="button" onClick={() => setPresetDeleteConfirmation(null)} disabled={presetDeleting}>Cancel</button>
+              <button type="button" className="danger" onClick={() => void confirmDeleteEditedPreset()} disabled={presetDeleting}>
+                {presetDeleting ? 'Deleting…' : 'Delete Preset'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {createdPresetManagerMode && (
+        <div className="preset-management-backdrop" onClick={() => setCreatedPresetManagerMode(null)}>
+          <section className="preset-management-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="preset-management-header">
+              <div>
+                <h2>Edit Preset</h2>
+                <span>Select a preset from Created Presets.</span>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setCreatedPresetManagerMode(null)} aria-label="Close preset manager">×</button>
+            </div>
+            <div className="preset-management-list">
+              {createdPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="preset-management-option"
+                  onClick={() => {
+                    setCreatedPresetEditor({ mode: 'edit', id: preset.id, title: preset.title, prompt: preset.prompt, thumbnail: preset.thumbnail ?? null, folderId: preset.folderId ?? null })
+                    setCreatedPresetManagerMode(null)
+                  }}
+                >
+                  <span>{preset.title}</span>
+                  <span>Edit</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+  {fullscreenResultUrl && (
+  <div className="result-fullscreen-overlay" role="dialog" aria-modal="true" aria-label="Full screen generated image" onClick={() => setFullscreenResultUrl(null)}>
+    <button type="button" className="result-fullscreen-close" onClick={() => setFullscreenResultUrl(null)} aria-label="Close full screen image">×</button>
+    <img src={fullscreenResultUrl} alt="Generated result full screen" onClick={(event) => event.stopPropagation()} />
+  </div>
+  )}
+  {resultsOpen && (
+  <section className="results-page" aria-label="Completed generations">
+          <div className="results-page-header">
+            <div>
+              <h2>Completed Generations</h2>
+              <span>{results.length} completed image{results.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="results-page-header-actions">
+              <button
+                className={`results-image-toggle${completedImageVisible ? ' active' : ''}`}
+                type="button"
+                onClick={() => setCompletedImageVisible((visible) => !visible)}
+                aria-label="Toggle generated image"
+                title="Toggle generated image"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {completedImageVisible ? (
+                    <>
+                      <rect x="3" y="5" width="18" height="14" rx="2"/>
+                      <circle cx="8.5" cy="10" r="1.3"/>
+                      <path d="M4.5 17l5-5 3.5 3.5 2.5-2.5 4 4"/>
+                    </>
+                  ) : (
+                    <>
+                      <rect x="3" y="5" width="18" height="14" rx="2"/>
+                      <circle cx="8.5" cy="10" r="1.3"/>
+                      <path d="M4.5 17l5-5 3.5 3.5 2.5-2.5 4 4"/>
+                      <path d="M4 4l16 16"/>
+                    </>
+                  )}
+                </svg>
+              </button>
+              <button className="close-btn" type="button" onClick={() => setResultsOpen(false)} aria-label="Return to generation UI">×</button>
+            </div>
+          </div>
+          <div className="results-page-body">
+            {results.length > 0 && (() => {
+const latestResult = results.find((item) => item.id === latestResultId) ?? results[0]
+        return latestResult ? (
+          <section className="latest-result">
+      <div className={`completed-image-tap-area completed-image-tap-${completedTapState}${completedImageVisible ? '' : ' completed-image-tap-hidden'}`}>
+        {completedImageVisible ? (
+          latestResult.mediaType === 'video' ? (
+            <video src={latestResult.url} controls playsInline preload="metadata" />
+          ) : (
+            <img
+              src={latestResult.url}
+              alt="Generated result"
+              loading="lazy"
+              draggable={false}
+              onClick={handleCompletedImageTap}
+              onContextMenu={(event) => event.preventDefault()}
+              onLoad={(event) => {
+                const width = event.currentTarget.naturalWidth
+                const height = event.currentTarget.naturalHeight
+                if (width && height && (latestResult.width !== width || latestResult.height !== height)) {
+                  setResults((prev) => prev.map((item) => item.id === latestResult.id ? { ...item, width, height } : item))
+                }
+              }}
+            />
+          )
+        ) : (
+          <svg className="completed-image-placeholder" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <circle cx="8.5" cy="10" r="1.3"/>
+            <path d="M4.5 17l5-5 3.5 3.5 2.5-2.5 4 4"/>
+          </svg>
+        )}
+      </div>
+      <div className="latest-result-info">
+        <span>Dimension <b>{latestResult.width && latestResult.height ? `${latestResult.width} × ${latestResult.height}px` : 'Loading…'}</b></span>
+        <span>CFG <b>{latestResult.cfg ?? '���'}</b></span>
+        <span>Steps <b>{latestResult.steps ?? '—'}</b></span>
+        <span>Megapixels <b>{latestResult.megapixels ?? '—'}</b></span>
+      </div>
+      <div className="use-generated-wrap">
+        <span className="use-generated-label">Use generated image as</span>
+        <div className="use-generated-actions">
+          <button type="button" onClick={() => void useGeneratedAsFigure(latestResult, 'one')} disabled={isBusy || isUploading}>Figure A</button>
+          <button type="button" onClick={() => void useGeneratedAsFigure(latestResult, 'two')} disabled={isBusy || isUploading}>Figure B</button>
+        </div>
+      </div>
+    </section>
+  ) : null
+})()}
+            {!latestResultId || !results.length ? <div className="results-empty"><p>No completed generations yet.</p><button className="results-empty-exit" type="button" onClick={() => setResultsOpen(false)}>Return to generator</button></div> : null}
+          </div>
+        </section>
+      )}
+
+      {completedPromptId && (() => {
+        const completed = results.find((item) => item.id === completedPromptId)
+        if (!completed) return null
+        return (
+          <div className="completed-prompt-backdrop" onClick={() => setCompletedPromptId(null)}>
+            <section className="completed-prompt-embed" onClick={(event) => event.stopPropagation()}>
+              <div className="completed-prompt-header">
+                <div><h2>Generation Prompt</h2><span>Prompt saved with this image</span></div>
+                <button className="close-btn" type="button" onClick={() => setCompletedPromptId(null)} aria-label="Close generation prompt">×</button>
+              </div>
+              <div className="completed-prompt-body">
+                <div className="completed-prompt-text">{completed.prompt || 'Prompt not saved for this generation.'}</div>
+                <div className="completed-prompt-actions">
+                  <button type="button" onClick={() => {
+                    if (completed.prompt) setPrompt((current: string) => addImagePrompt(current, completed.prompt!))
+                    setCompletedPromptId(null)
+                  }} disabled={!completed.prompt}>Send to main prompt</button>
+                  <button type="button" className="danger" onClick={() => {
+                    if (completed.prompt) setPrompt((current: string) => removeImagePrompt(current, completed.prompt!))
+                    setCompletedPromptId(null)
+                  }} disabled={!completed.prompt}>Remove from main prompt</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )
+      })()}
+
+      {selectedPromptLabelId && (() => {
+        const label = promptLabels.find((x) => x.id === selectedPromptLabelId)
+        if (!label) return null
+        return <div className="prompt-label-viewer-backdrop" onClick={() => setSelectedPromptLabelId(null)}>
+          <section className="prompt-label-viewer" onClick={(e) => e.stopPropagation()}>
+            <div className="prompt-label-viewer-header"><div><h2>{label.name}</h2><span>Prompt Label</span></div><button className="close-btn" type="button" onClick={() => setSelectedPromptLabelId(null)}>×</button></div>
+            <div className="prompt-label-viewer-body"><div className="prompt-label-text">{label.text}</div><div className="prompt-label-viewer-actions"><button className="prompt-label-send" type="button" onClick={() => { sendPromptLabelToPrompt(label.id); setSelectedPromptLabelId(null); setIdeasOpen(false) }}>Send to Prompt</button><button className="prompt-label-remove" type="button" onClick={() => { removePromptLabelFromPrompt(label.id); setSelectedPromptLabelId(null); setIdeasOpen(false) }}>Remove</button></div></div>
+          </section>
+        </div>
+      })()}
+
+      {editingPromptLabel && <div className="prompt-label-editor-backdrop" onClick={() => setEditingPromptLabel(null)}>
+        <section className="prompt-label-editor" onClick={(e) => e.stopPropagation()}>
+          <div className="prompt-label-editor-header"><h2>{editingPromptLabel.id ? 'Edit Prompt Label' : 'New Prompt Label'}</h2><button className="close-btn" type="button" onClick={() => setEditingPromptLabel(null)}>×</button></div>
+          <label>Button name<input value={editingPromptLabel.name} onChange={(e) => setEditingPromptLabel((prev) => prev ? { ...prev, name: e.target.value } : prev)} placeholder="Example: Cinematic" autoFocus /></label>
+          <label>Prompt text<textarea value={editingPromptLabel.text} onChange={(e) => setEditingPromptLabel((prev) => prev ? { ...prev, text: e.target.value } : prev)} placeholder="Enter the prompt text for this label..." rows={8} /></label>
+          <div className="prompt-label-editor-actions">
+            {editingPromptLabel.id && <button type="button" className="prompt-label-delete-editor" onClick={() => { deletePromptLabel(editingPromptLabel.id!); setEditingPromptLabel(null) }}>Delete</button>}
+            <button type="button" onClick={() => setEditingPromptLabel(null)}>Cancel</button>
+            <button type="button" className="primary" onClick={savePromptLabel} disabled={!editingPromptLabel.text.trim()}>Save</button>
+          </div>
+        </section>
+      </div>}
+
+      {indexedDbInspectorOpen && <IndexedDbInspector onClose={() => { setIndexedDbInspectorOpen(false); setMainFooterVisible(true); setMainSidebarOpen(false) }} inspect={inspectIndexedDb} inspectKeys={inspectIndexedDbKeys} inspectRecord={inspectIndexedDbRecord} permanentlyDelete={permanentlyDeleteIndexedDbStore} />}
+
+      {historyOpen && <div className="history-backdrop" onClick={() => setHistoryOpen(false)}>
+        <section className="history-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="history-header">
+            <div className="history-header-title">
+              <h2>{historySection === 'history' ? 'History' : 'Recycle Bin'}</h2>
+              <span>{historySection === 'history' ? `${results.length} generation${results.length === 1 ? '' : 's'}` : `${trash.length} deleted generation${trash.length === 1 ? '' : 's'}`}</span>
+            </div>
+            <div className="history-header-controls">
+              <button type="button" className={`history-mode-icon${historySection === 'history' ? ' active' : ''}`} onClick={() => { setHistorySection('history'); setHistoryPage(1) }} aria-label="History" title="History">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H20v17.5A2.5 2.5 0 0 0 17.5 17H6z"/><path d="M6 4.5v15A2.5 2.5 0 0 0 8.5 22H20"/><path d="M10 6h7M10 10h7"/></svg>
+              </button>
+              <button type="button" className={`history-mode-icon${historySection === 'trash' ? ' active trash' : ''}`} onClick={() => { setHistorySection('trash'); setHistoryPage(1) }} aria-label={`Recycle Bin${trash.length ? ` (${trash.length})` : ''}`} title={`Recycle Bin${trash.length ? ` (${trash.length})` : ''}`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+                {trash.length > 0 && <span>{trash.length}</span>}
+              </button>
+              {historySection === 'history' && (
+                <>
+                  <input ref={historyImportInputRef} type="file" accept=".json,application/json" hidden onChange={(e) => { void importHistoryItem(e.target.files?.[0]); e.currentTarget.value = '' }} />
+                  <button type="button" className="history-import-btn" onClick={() => historyImportInputRef.current?.click()} aria-label="Import History JSON" title="Import History JSON">Import</button>
+                </>
+              )}
+              {historySection === 'trash' && trash.length > 0 && <button type="button" className="history-delete-all-btn" onClick={deleteAllTrash}>Delete All</button>}
+              <span className="history-page-indicator">{historySection === 'history' ? `Page ${safeHistoryPage} of ${historyPageCount}` : `Page ${safeHistoryPage} of ${trashPageCount}`}</span>
+              <button className="history-close-btn" type="button" onClick={() => setHistoryOpen(false)} aria-label="Close history">×</button>
+            </div>
+          </div>
+          {activeItems.length ? <div className="history-list history-grid">
+            {activeItems.map((img, i) => <HistoryItem
+              key={img.id}
+              img={img}
+              index={(safeHistoryPage - 1) * HISTORY_PAGE_SIZE + i}
+              section={historySection}
+              onRestore={() => restoreFromTrash(img.id)}
+              onPermanentDelete={() => permanentlyDelete(img.id)}
+              onTrash={() => moveToTrash(img.id)}
+              onPromptChange={(prompt) => updateHistoryPrompt(img.id, prompt)}
+            />)}
+          </div> : <div className="history-empty">{historySection === 'history' ? 'No generations in history.' : 'Recycle Bin is empty.'}</div>}
+          {activePageCount > 1 && <div className="history-pagination">
+            <button type="button" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={safeHistoryPage <= 1}>Previous</button>
+            <span>{safeHistoryPage} / {activePageCount}</span>
+            <button type="button" onClick={() => setHistoryPage((p) => Math.min(activePageCount, p + 1))} disabled={safeHistoryPage >= activePageCount}>Next</button>
+          </div>}
+        </section>
+      </div>}
+
+      </main>
+
+  </div>
+}
+
+function HistoryItem({ img, index, section, onRestore, onPermanentDelete, onTrash, onPromptChange }: {
+  img: ResultImage
+  index: number
+  section: 'history' | 'trash'
+  onRestore: () => void
+  onPermanentDelete: () => void
+  onTrash: () => void
+  onPromptChange: (prompt: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [prompt, setPrompt] = useState(img.prompt || '')
+  const [promptOpen, setPromptOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  useEffect(() => {
+    setPrompt(img.prompt || '')
+  }, [img.prompt])
+
+  async function exportHistoryItem() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const response = await fetch(img.url)
+      if (!response.ok) throw new Error('Could not load the history image.')
+      const blob = await response.blob()
+
+      const imageData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          if (typeof reader.result === 'string') resolve(reader.result)
+          else reject(new Error('Could not convert the image.'))
+        }
+        reader.onerror = () => reject(reader.error || new Error('Could not read the image.'))
+        reader.readAsDataURL(blob)
+      })
+
+      const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'
+      const safeName = (img.id || 'history-image').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'history-image'
+      const payload = {
+        format: 'comfyui-pwa-history-image',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        image: {
+          filename: safeName + '.' + extension,
+          mimeType: blob.type || 'image/jpeg',
+          data: imageData,
+        },
+        prompt: prompt || '',
+        metadata: {
+          id: img.id,
+          createdAt: img.createdAt || null,
+          promptId: img.promptId || null,
+        },
+      }
+
+      const file = new File(
+        [JSON.stringify(payload, null, 2)],
+        safeName + '.json',
+        { type: 'application/json' }
+      )
+
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({
+          title: safeName,
+          text: 'ComfyUI PWA image and prompt',
+          files: [file],
+        })
+      } else {
+        const url = URL.createObjectURL(file)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = file.name
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      window.alert(error instanceof Error ? error.message : 'Could not export this history item.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleCardTap = () => {
+    setExpanded((current) => !current)
+    if (navigator.vibrate) navigator.vibrate(12)
+  }
+
+  return <article
+    className={`history-item${expanded ? ' history-item-expanded' : ''}`}
+    onClick={handleCardTap}
+    aria-label={`${section === 'history' ? `Generation ${index + 1}` : 'Deleted generation'}${expanded ? '. Expanded.' : '. Tap to expand.'}`}
+  >
+    {img.mediaType === "video" ? <video src={img.url} controls playsInline preload="metadata" aria-label={`Generated video ${index + 1}`} /> : <img src={img.url} alt={`Generated result ${index + 1}`} loading="lazy" />}
+    <div className="history-details">
+      <div className="history-meta">{section === 'history' ? `Generation ${index + 1}` : 'Deleted generation'}</div>
+      {!expanded && <div className="history-prompt"><p>{img.prompt || 'Prompt not saved for this generation.'}</p></div>}
+      {expanded && <div className="history-expanded-content" onClick={(e) => e.stopPropagation()}>
+        <div className="history-prompt-box history-main-prompt-box">
+          <label htmlFor={`history-prompt-${img.id}`}>Main Prompt</label>
+          <textarea
+          id={`history-prompt-${img.id}`}
+          value={prompt}
+          onChange={(e) => {
+            const next = e.target.value
+            setPrompt(next)
+            onPromptChange(next)
+          }}
+          placeholder="No prompt was saved for this generation."
+          rows={7}
+          onClick={(e) => {
+            e.stopPropagation()
+            setPromptOpen(true)
+          }}
+          readOnly
+          />
+        </div>
+        {img.hookPrompts?.map((hookPrompt) => (
+          <div className="history-prompt-box history-hook-prompt-box" key={`${img.id}-${hookPrompt.name}`}>
+            <label>{hookPrompt.name} · Hook Prompt</label>
+            <textarea value={hookPrompt.text} readOnly aria-label={`${hookPrompt.name} hook prompt`} rows={4} />
+          </div>
+        ))}
+        <div className="history-expanded-actions">
+          {section === 'history' && (
+            <button className="history-export-btn" type="button" onClick={(e) => { e.stopPropagation(); void exportHistoryItem() }} disabled={exporting}>
+              {exporting ? 'Preparing…' : 'Export JSON'}
+            </button>
+          )}
+          {section === 'history'
+            ? <button className="history-delete-btn" type="button" onClick={(e) => { e.stopPropagation(); onTrash() }}>Trash</button>
+            : <>
+                <button className="history-restore-btn" type="button" onClick={(e) => { e.stopPropagation(); onRestore() }}>Restore</button>
+                <button className="history-delete-btn permanent" type="button" onClick={(e) => { e.stopPropagation(); onPermanentDelete() }}>Delete Permanently</button>
+              </>}
+        </div>
+      </div>}
+    </div>
+    {promptOpen && createPortal(
+      <div className="history-prompt-page-backdrop" onClick={() => setPromptOpen(false)}>
+        <section className="history-prompt-page" onClick={(e) => e.stopPropagation()}>
+          <header className="history-prompt-page-header">
+            <div>
+              <h2>Edit Prompt</h2>
+              <span>{section === 'history' ? `Generation ${index + 1}` : 'Deleted generation'}</span>
+            </div>
+            <button type="button" className="close-btn" onClick={() => setPromptOpen(false)} aria-label="Close prompt editor">×</button>
+          </header>
+          <div className="history-prompt-page-body">
+            <textarea
+              autoFocus
+              value={prompt}
+              onChange={(e) => {
+                const next = e.target.value
+                setPrompt(next)
+                onPromptChange(next)
+              }}
+              placeholder="No prompt was saved for this generation."
+              aria-label="Edit generation prompt"
+            />
+            <div className="history-prompt-page-actions">
+              <button
+                type="button"
+                className="history-send-main-prompt"
+                disabled={!prompt.trim()}
+                onClick={() => {
+                  const confirmed = window.confirm('Send this entire prompt to the Main Prompt box? This will only replace the Main Prompt text and will not generate or send anything.')
+                  if (!confirmed) return
+                  setPrompt(prompt)
+                  // Intentionally only updates the main prompt field.
+                  window.dispatchEvent(new CustomEvent('history-send-to-main-prompt', { detail: prompt }))
+                  setPromptOpen(false)
+                }}
+              >
+                Send to Main Prompt
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>,
+      document.body
+    )}
+  </article>
+}
+function PromptLabelButton({ label, index, armed, onPointerDown, onPointerUp, onTap }: { label: PromptLabel; index: number; armed: boolean; onPointerDown: () => void; onPointerUp: () => void; onTap: () => void }) {
+  return <button type="button" className={`prompt-label-button${armed ? ' prompt-label-button-armed' : ''}`} onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerUp} onClick={onTap} onContextMenu={(e) => e.preventDefault()}>
+    <span className="prompt-label-order">{index + 1}</span><span className="prompt-label-name">{label.name}</span>
+  </button>
+}
+
+function SettingNumber({ label, value, min, max, step, onChange, suffix }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => { if (Number(text) !== value) setText(String(value)) }, [value])
+  return <label className="setting"><span>{label}{suffix ? ` (${suffix})` : ''}</span><input type="number" value={text} min={min} max={max} step={step}
+    onChange={(e) => { const next = e.target.value; setText(next); if (next !== '') { const n = Number(next); if (Number.isFinite(n)) onChange(n) } }}
+    onBlur={() => { if (text === '') setText(String(value)) }} /></label>
+}
+
+function ImagePicker({ label, image, busy, disabled, glow, onChange, onClear }: { slot: string; label: string; image: CharacterImage | null; busy: boolean; disabled: boolean; glow: boolean; onChange: (file?: File) => void; onClear: () => void }) {
+  return (
+    <div className={`image-picker ${glow ? 'rgb-glow-active' : ''} ${busy ? 'rgb-glow-running' : ''}`}>
+      <div className="image-picker-title"><span>{label}</span>{image && <button className="image-clear-btn" type="button" onClick={onClear} disabled={disabled || busy} aria-label={`Clear ${label}`}>×</button>}</div>
+      <div className="image-picker-box-wrap">
+        <label className="image-picker-box">
+          {image ? <>
+            <span className="image-picker-depth" aria-hidden="true" style={{ backgroundImage: `url("${image.previewUrl}")` }} />
+            <img src={image.previewUrl} alt={`${label} preview`} />
+          </> : <span className="image-upload-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4" /><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg><strong>Choose an image</strong><small>PNG, JPG, or WebP</small></span>}
+          <input type="file" accept="image/png,image/jpeg,image/webp" disabled={disabled || busy} onChange={(e) => { onChange(e.target.files?.[0]); e.currentTarget.value = '' }} />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function findIndexedDbImageSource(value: unknown, depth = 0, seen = new Set<object>()): string | Blob | ArrayBuffer | null {
+  if (depth > 6 || value == null) return null
+  if (value instanceof Blob) return value
+  if (value instanceof ArrayBuffer) return value
+  if (typeof value === 'string') return value.startsWith('data:image/') ? value : null
+  if (typeof value !== 'object' || seen.has(value)) return null
+  seen.add(value)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const source = findIndexedDbImageSource(entry, depth + 1, seen)
+      if (source) return source
+    }
+    return null
+  }
+  const record = value as Record<string, unknown>
+  for (const key of ['dataUrl', 'src', 'data', 'thumbnail', 'preview', 'image', 'images']) {
+    if (!(key in record)) continue
+    const source = findIndexedDbImageSource(record[key], depth + 1, seen)
+    if (source) return source
+  }
+  return null
+}
+
+function IndexedDbRecordThumbnail({
+  databaseName,
+  storeName,
+  record,
+  inspectRecord,
+  canShowImages,
+}: {
+  databaseName: string
+  storeName: string
+  record: { key: string; rawKey: IDBValidKey }
+  inspectRecord: (databaseName: string, storeName: string, key: IDBValidKey) => Promise<unknown>
+  canShowImages: boolean
+}) {
+  const containerRef = useRef<HTMLSpanElement>(null)
+  const inspectRecordRef = useRef(inspectRecord)
+  inspectRecordRef.current = inspectRecord
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    if (!canShowImages) return
+    let active = true
+    let objectUrl = ''
+    let started = false
+    const loadPreview = () => {
+      if (started) return
+      started = true
+      void inspectRecordRef.current(databaseName, storeName, record.rawKey).then((value) => {
+        if (!active) return
+        const source = findIndexedDbImageSource(value)
+        if (typeof source === 'string') setSrc(source)
+        else if (source) {
+          objectUrl = URL.createObjectURL(source instanceof Blob ? source : new Blob([source]))
+          setSrc(objectUrl)
+        }
+      }).catch(() => {})
+    }
+    const container = containerRef.current
+    if (!container || typeof IntersectionObserver === 'undefined') loadPreview()
+    else {
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect()
+          loadPreview()
+        }
+      }, { rootMargin: '160px' })
+      observer.observe(container)
+      return () => {
+        active = false
+        observer.disconnect()
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
+      }
+    }
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [canShowImages, databaseName, record.rawKey, storeName])
+  return <span ref={containerRef} className="indexeddb-record-thumb">
+    {src ? <img src={src} alt="" loading="lazy" /> : <span>{canShowImages ? 'IMG' : 'DB'}</span>}
+  </span>
+}
+
+function IndexedDbInspector({
+  onClose,
+  inspect,
+  inspectKeys,
+  inspectRecord,
+  permanentlyDelete,
+}: {
+  onClose: () => void
+  inspect: () => Promise<Array<{ name: string; version: number; stores: Array<{ name: string; count: number; keyPath: string | string[] | null; autoIncrement: boolean }> }>>
+  inspectKeys: (databaseName: string, storeName: string) => Promise<Array<{ key: string; rawKey: IDBValidKey }>>
+  inspectRecord: (databaseName: string, storeName: string, key: IDBValidKey) => Promise<unknown>
+  permanentlyDelete: (databaseName: string, storeName: string) => Promise<void>
+}) {
+  const [loading, setLoading] = useState(true)
+  const [databases, setDatabases] = useState<Array<{ name: string; version: number; stores: Array<{ name: string; count: number; keyPath: string | string[] | null; autoIncrement: boolean }> }>>([])
+  const [error, setError] = useState('')
+  const [selectedStore, setSelectedStore] = useState<{ databaseName: string; storeName: string; count: number } | null>(null)
+  const [storeKeys, setStoreKeys] = useState<Array<{ key: string; rawKey: IDBValidKey }>>([])
+  const [recordsLoading, setRecordsLoading] = useState(false)
+  const [recordsError, setRecordsError] = useState('')
+  const [selectedRecord, setSelectedRecord] = useState<{ key: string; value: unknown } | null>(null)
+  const [recordLoading, setRecordLoading] = useState(false)
+  const [deletingStore, setDeletingStore] = useState(false)
+  const [recordPreviewUrl, setRecordPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (recordPreviewUrl) URL.revokeObjectURL(recordPreviewUrl)
+    }
+  }, [recordPreviewUrl])
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setDatabases(await inspect())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not inspect IndexedDB.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function permanentlyDeleteStore() {
+    if (!selectedStore || deletingStore) return
+    const label = `${selectedStore.databaseName} / ${selectedStore.storeName}`
+    const confirmed = window.confirm(
+      `PERMANENTLY DELETE ALL ${selectedStore.count} RECORDS?\n\nThis will remove every record in ${label} from IndexedDB. This cannot be undone.\n\nPress OK only if you are absolutely sure.`
+    )
+    if (!confirmed) return
+
+    setDeletingStore(true)
+    setRecordsError('')
+    try {
+      await permanentlyDelete(selectedStore.databaseName, selectedStore.storeName)
+      if (recordPreviewUrl) {
+        URL.revokeObjectURL(recordPreviewUrl)
+        setRecordPreviewUrl(null)
+      }
+      setSelectedRecord(null)
+      setStoreKeys([])
+      setSelectedStore((current) => current ? { ...current, count: 0 } : null)
+      await load()
+    } catch (error) {
+      setRecordsError(error instanceof Error ? error.message : `Could not permanently delete ${label}.`)
+    } finally {
+      setDeletingStore(false)
+    }
+  }
+
+  async function openStore(databaseName: string, storeName: string, count: number) {
+    setSelectedStore({ databaseName, storeName, count })
+    setSelectedRecord(null)
+    setRecordsLoading(true)
+    setRecordsError('')
+    try {
+      setStoreKeys(await inspectKeys(databaseName, storeName))
+    } catch (e) {
+      setStoreKeys([])
+      setRecordsError(e instanceof Error ? e.message : 'Could not read IndexedDB records.')
+    } finally {
+      setRecordsLoading(false)
+    }
+  }
+
+  async function openRecord(key: { key: string; rawKey: IDBValidKey }) {
+    if (!selectedStore) return
+    if (recordPreviewUrl) {
+      URL.revokeObjectURL(recordPreviewUrl)
+      setRecordPreviewUrl(null)
+    }
+    setSelectedRecord({ key: key.key, value: null })
+    setRecordLoading(true)
+    try {
+      const value = await inspectRecord(selectedStore.databaseName, selectedStore.storeName, key.rawKey)
+      const imageSource = findIndexedDbImageSource(value)
+      if (imageSource instanceof Blob) {
+        setRecordPreviewUrl(URL.createObjectURL(imageSource))
+      } else if (imageSource instanceof ArrayBuffer) {
+        setRecordPreviewUrl(URL.createObjectURL(new Blob([imageSource])))
+      }
+      setSelectedRecord({ key: key.key, value })
+    } catch (e) {
+      setSelectedRecord({ key: key.key, value: { error: e instanceof Error ? e.message : 'Could not read record.' } })
+    } finally {
+      setRecordLoading(false)
+    }
+  }
+
+  useEffect(() => { void load() }, [])
+
+  const isImageRecord = selectedStore?.storeName.toLowerCase().includes('imagedata') || selectedStore?.storeName.toLowerCase().includes('image')
+
+  return createPortal(<div className="indexeddb-inspector-backdrop" onClick={onClose}>
+    <section className="indexeddb-inspector" onClick={(e) => e.stopPropagation()}>
+      <header className="indexeddb-inspector-header">
+        <div>
+          <h2>IndexedDB Inspector</h2>
+          <span>Browser storage view</span>
+        </div>
+        <div className="indexeddb-inspector-actions">
+          <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Reading…' : 'Refresh'}</button>
+          <button type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <div className={`indexeddb-inspector-body${selectedStore ? ' has-store' : ' overview'}`}>
+        {selectedStore ? (
+          <>
+            <div className="indexeddb-records-header">
+              <button type="button" className="indexeddb-back-btn" onClick={() => {
+                if (recordPreviewUrl) { URL.revokeObjectURL(recordPreviewUrl); setRecordPreviewUrl(null) }
+                setSelectedStore(null); setStoreKeys([]); setSelectedRecord(null)
+              }}>← Databases</button>
+              <div>
+                <strong>{selectedStore.databaseName}</strong>
+                <span>{selectedStore.storeName} · {selectedStore.count} record{selectedStore.count === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+
+            {selectedRecord ? (
+              <div className="indexeddb-record-detail">
+                <button type="button" className="indexeddb-back-btn" onClick={() => {
+                  if (recordPreviewUrl) { URL.revokeObjectURL(recordPreviewUrl); setRecordPreviewUrl(null) }
+                  setSelectedRecord(null)
+                }}>← Records</button>
+                <div className="indexeddb-record-title">{selectedRecord.key}</div>
+                {recordLoading ? <div className="indexeddb-inspector-empty">Reading record…</div> : (() => {
+                  const value = selectedRecord.value
+                  const imageSource = findIndexedDbImageSource(value)
+                  const src = typeof imageSource === 'string' ? imageSource : recordPreviewUrl
+                  const blob = imageSource instanceof Blob ? imageSource : null
+                  return src ? (
+                    <div className="indexeddb-image-preview">
+                      <img src={src} alt={selectedRecord.key} />
+                      <div className="indexeddb-image-meta">
+                        <span>Image preview</span>
+                        <small>{blob ? `${blob.type || 'image'} · ${Math.round(blob.size / 1024)} KB · Stored in IndexedDB` : 'Image source stored in IndexedDB'}</small>
+                      </div>
+                    </div>
+                  ) : (
+                    <pre className="indexeddb-record-json">{JSON.stringify(selectedRecord.value, null, 2)}</pre>
+                  )
+                })()}
+              </div>
+            ) : (
+              <>
+                <div className="indexeddb-store-danger">
+              <button
+                type="button"
+                className="indexeddb-delete-all-btn"
+                onClick={() => void permanentlyDeleteStore()}
+                disabled={deletingStore || selectedStore.count === 0}
+              >
+                {deletingStore ? 'Permanently Deleting…' : 'Permanently Delete All'}
+              </button>
+              <span>This permanently removes every record in this category.</span>
+            </div>
+
+            <div className="indexeddb-records-note">{isImageRecord ? 'Tap an image record to view the image stored inside IndexedDB.' : 'Tap a record to inspect its contents.'}</div>
+                {recordsLoading ? <div className="indexeddb-inspector-empty">Reading records…</div> : recordsError ? <div className="indexeddb-inspector-error">{recordsError}</div> : storeKeys.length ? (
+                  <div className="indexeddb-record-list">
+                    {storeKeys.map((record) => (
+                      <button type="button" className="indexeddb-record-row" key={record.key} onClick={() => void openRecord(record)}>
+                        <IndexedDbRecordThumbnail databaseName={selectedStore.databaseName} storeName={selectedStore.storeName} record={record} inspectRecord={inspectRecord} canShowImages={Boolean(isImageRecord || selectedStore.databaseName.toLowerCase().includes('created-presets'))} />
+                        <span className="indexeddb-record-key">{record.key}</span>
+                        <span className="indexeddb-record-chevron">›</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : <div className="indexeddb-inspector-empty">This object store is empty.</div>}
+              </>
+            )}
+          </>
+        ) : (
+          loading ? <div className="indexeddb-inspector-empty">Reading IndexedDB…</div> : error ? <div className="indexeddb-inspector-error">{error}</div> : databases.length ? databases.map((db) => <article className="indexeddb-db" key={db.name}>
+            <div className="indexeddb-db-title"><strong>{db.name}</strong><span>Version {db.version}</span></div>
+            {db.stores.length ? <div className="indexeddb-store-list">{db.stores.map((store) => (
+              <button type="button" className="indexeddb-store indexeddb-store-button" key={store.name} onClick={() => void openStore(db.name, store.name, store.count)}>
+                <span>{store.name}</span><b>{store.count < 0 ? '—' : store.count}</b><i>›</i>
+              </button>
+            ))}</div> : <div className="indexeddb-no-stores">No object stores.</div>}
+          </article>) : <div className="indexeddb-inspector-empty">No IndexedDB databases were found.</div>
+        )}
+      </div>
+    </section>
+  </div>, document.body)
+}
