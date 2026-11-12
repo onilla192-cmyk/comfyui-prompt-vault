@@ -83,8 +83,12 @@
         icon.append(iconPath); iconWrap.append(icon);
         const divider=document.createElement('span'); divider.className='cp-folder-divider'; divider.setAttribute('aria-hidden','true');
         open.append(iconWrap,divider,safeText('strong', folder.name));
-        let clickTimer = null, highlightTimer = null;
+        let clickTimer = null, highlightTimer = null, pressTimer = null;
         open.addEventListener('click', () => {
+          open.classList.add('is-pressed');
+          if(pressTimer)clearTimeout(pressTimer);
+          pressTimer=setTimeout(()=>open.classList.remove('is-pressed'),190);
+          if(navigator.vibrate)navigator.vibrate(12);
           if (clickTimer) {
             clearTimeout(clickTimer); clickTimer = null;
             if (highlightTimer) clearTimeout(highlightTimer);
@@ -106,8 +110,8 @@
             return;
           }
           card.classList.add('is-clicked');
-          highlightTimer = setTimeout(() => card.classList.remove('is-clicked'), 520);
-          clickTimer = setTimeout(() => { clickTimer = null; }, 320);
+          highlightTimer = setTimeout(() => card.classList.remove('is-clicked'), 900);
+          clickTimer = setTimeout(() => { clickTimer = null; }, 650);
         });
         card.append(open); $('cp-folder-grid').append(card);
       });
