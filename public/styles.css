@@ -970,3 +970,19 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   cursor:pointer;
 }
 .preset-tag-picker button.danger { border-color:#a33b3b; color:#ffbaba; }
+
+
+/* Spread Add, Edit, and Delete Tag controls evenly across the image panel. */
+.preset-tag-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 8px;
+}
+.preset-tag-actions > button {
+  width: 100%;
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+}
