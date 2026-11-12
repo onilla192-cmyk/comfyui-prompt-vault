@@ -71,13 +71,28 @@
     } else {
       state.folders.sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0)).forEach(folder => {
         const card = document.createElement('article'); card.className = 'cp-folder-card';
+        const openFolder = () => { state.folderId=folder.id; state.selected.clear(); state.mode=''; updateModeButtons(); render(); };
         const open = safeText('button', ''); open.type='button'; open.className='cp-folder-open';
         open.append(safeText('strong', folder.name), safeText('small', state.presets.filter(p => p.folderId === folder.id).length + ' presets'));
-        open.addEventListener('click', () => { state.folderId=folder.id; state.selected.clear(); state.mode=''; updateModeButtons(); render(); });
-        const tools = document.createElement('div'); tools.className='cp-folder-tools';
-        const exportBtn=safeText('button','Export'); exportBtn.type='button'; exportBtn.addEventListener('click',()=>exportFolder(folder));
-        const editBtn=safeText('button','Edit'); editBtn.type='button'; editBtn.addEventListener('click',()=>openFolderEditor(folder));
-        tools.append(exportBtn,editBtn); card.append(open,tools); $('cp-folder-grid').append(card);
+        let clickTimer = null, highlightTimer = null;
+        open.addEventListener('click', () => {
+          if (clickTimer) {
+            clearTimeout(clickTimer); clickTimer = null;
+            if (highlightTimer) clearTimeout(highlightTimer);
+            card.classList.remove('is-clicked');
+            document.querySelectorAll('.cp-folder-menu').forEach(menu => menu.remove());
+            const menu = document.createElement('div'); menu.className='cp-folder-menu';
+            const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',openFolder);
+            const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{exportFolder(folder);menu.remove();});
+            const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{menu.remove();openFolderEditor(folder);});
+            menu.append(openItem,exportItem,editItem); card.append(menu);
+            return;
+          }
+          card.classList.add('is-clicked');
+          highlightTimer = setTimeout(() => card.classList.remove('is-clicked'), 520);
+          clickTimer = setTimeout(() => { clickTimer = null; }, 320);
+        });
+        card.append(open); $('cp-folder-grid').append(card);
       });
     }
     const items = visible();
@@ -173,7 +188,7 @@
       if(state.folders.some(f=>f.id!==state.editingFolderId&&f.name.toLowerCase()===name.toLowerCase()))throw new Error('A folder with that name already exists.');
       if(state.editingFolderId){const f=state.folders.find(x=>x.id===state.editingFolderId);if(!f)throw new Error('Folder not found.');await put(FOLDERS,{...f,name});}
       else await createFolder(name);
-      closeFolderEditor();await refresh();say('Folder saved.');
+      closeFolderEditor();await refresh();$('cp-status').textContent='';$('cp-status').classList.remove('error');
     }catch(e){say(e.message||'Could not save folder.',true);}
   }
   async function deleteFolder(){
