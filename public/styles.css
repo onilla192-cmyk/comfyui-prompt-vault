@@ -718,3 +718,24 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   }
   .created-presets-page .cp-card-actions button { min-height: 30px; min-width: 0; }
 }
+
+/* Optional Prompt Vault-sized cards; default Created Presets styling remains unchanged. */
+.created-presets-page.cp-vault-grid-size .cp-card-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 24px;
+}
+.created-presets-page.cp-vault-grid-size .cp-preset-card > img,
+.created-presets-page.cp-vault-grid-size .cp-preset-placeholder {
+  aspect-ratio: 2 / 3;
+}
+@media (max-width: 900px) {
+  .created-presets-page.cp-vault-grid-size .cp-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .created-presets-page.cp-vault-grid-size .cp-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
