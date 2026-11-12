@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#171717">
+<title>New card</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site-header" aria-label="Site header"></header>
+<main class="detail-main">
+<section class="detail-content" aria-label="Create card">
+<div class="create-toolbar">
+<a class="detail-back" id="cancel-create" href="/">Cancel</a>
+<button class="dialog-action primary create-save" id="save-card" type="button" disabled>Create card</button>
+</div>
+<div class="detail-layout create-layout">
+<div class="detail-image-wrap create-image-wrap" id="create-image-wrap">
+<img class="detail-image" id="create-image-preview" alt="New card image preview" hidden>
+<div class="create-image-empty" id="create-image-empty">
+<p>Add an image to create a card</p>
+<button class="dialog-action" id="choose-card-image" type="button">Choose image</button>
+</div>
+<input id="card-image-file" type="file" accept="image/*" hidden>
+</div>
+<div class="detail-editor-wrap create-editor-wrap">
+<textarea class="detail-prompt" id="new-card-prompt" aria-label="Prompt text" placeholder="Type a prompt…" spellcheck="false"></textarea>
+</div>
+</div>
+<p class="create-error" id="create-error" role="alert" hidden></p>
+</section>
+</main>
+<footer class="site-footer" aria-label="Site footer"></footer>
+<script src="/create.js" defer></script>
+</body>
+</html>
