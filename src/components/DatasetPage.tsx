@@ -45,6 +45,16 @@ export function DatasetPage({onClose,onMoveToVault,onMoveToCreatedPresets}:{onCl
   </div>
   <div className="dataset-imported-layout">
     <div className="dataset-page-content">
+      {!pages.length && <section className="dataset-library-welcome">
+        <div className="dataset-welcome-art" aria-hidden="true"><div className="dataset-art-card dataset-art-card-back"></div><div className="dataset-art-card dataset-art-card-mid"></div><div className="dataset-art-card dataset-art-card-front"><span>▧</span><i></i><i></i><i></i></div></div>
+        <div className="dataset-welcome-copy">
+          <span className="dataset-eyebrow">YOUR COLLECTION</span>
+          <h1>Datasets, organized.</h1>
+          <p>Bring your prompt and image collections together in one place. Import a dataset JSON file to browse, review, and organize every record.</p>
+          <button type="button" className="dataset-welcome-import" onClick={()=>setStep('upload')}><span aria-hidden="true">↑</span> Import a dataset</button>
+          <div className="dataset-welcome-notes"><span>⌁ Prompt and image records</span><span>▦ Browse visual previews</span><span>⇄ Move cards to Prompt Vault</span></div>
+        </div>
+      </section>}
       {pages.length > 1 && <div className="dataset-page-switcher">
         {pages.map(p=><button className={p.id===active?'active':''} key={p.id} onClick={()=>{setActive(p.id);setVaultSel(new Set())}}>
           <span>{p.name}</span><small>{p.items.length} records</small>
