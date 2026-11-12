@@ -197,7 +197,6 @@
   }
   async function createFolder(name) {
     const clean=name.trim();if(!clean)throw new Error('Enter a folder name.');
-    if(state.folders.some(f=>f.name.toLowerCase()===clean.toLowerCase()))throw new Error('A folder with that name already exists.');
     if(state.folders.some(f=>(f.parentId||null)===state.folderId&&f.name.toLowerCase()===clean.toLowerCase()))throw new Error('A folder with that name already exists here.');
     const folder={id:uid('preset-folder'),name:clean,createdAt:Date.now(),...(state.folderId?{parentId:state.folderId}:{})};await put(FOLDERS,folder,'add');return folder;
   }
@@ -290,7 +289,7 @@
   $('cp-upload-image').addEventListener('click',()=>$('cp-image-file').click());
   $('cp-image-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{state.thumbnail=await compressImage(file);const img=document.createElement('img');img.src=state.thumbnail.dataUrl;img.alt='Thumbnail preview';$('cp-thumbnail-preview').replaceChildren(img);$('cp-image-info').textContent=state.thumbnail.width+' × '+state.thumbnail.height+' px · '+Math.max(1,Math.round(state.thumbnail.size/1024))+' KB';}catch(err){say(err.message||'Could not upload thumbnail.',true);}});
   $('cp-remove-image').addEventListener('click',()=>{state.thumbnail=null;$('cp-thumbnail-preview').textContent='No thumbnail attached';$('cp-image-info').textContent='Images are compressed on upload while keeping their original proportions.';});
-  $('cp-new-folder').addEventListener('click',()=>{state.editingFolderId=null;$('cp-folder-title').textContent='Create Folder';$('cp-folder-name').value='';$('cp-folder-save').textContent='Create Folder';$('cp-folder-delete').hidden=true;$('cp-folder-dialog').hidden=false;});
+  $('cp-new-folder').addEventListener('click',()=>{state.editingFolderId=null;$('cp-folder-title').textContent=state.folderId?'Create Subfolder':'Create Folder';$('cp-folder-name').value='';$('cp-folder-save').textContent=state.folderId?'Create Subfolder':'Create Folder';$('cp-folder-delete').hidden=true;$('cp-folder-dialog').hidden=false;});
   $('cp-folder-save').addEventListener('click',()=>void saveFolder());$('cp-folder-cancel').addEventListener('click',closeFolderEditor);$('cp-folder-delete').addEventListener('click',()=>void deleteFolder());
   $('cp-move-mode').addEventListener('click',()=>{state.mode=state.mode==='move'?'':'move';state.selected.clear();updateModeButtons();render();if(state.mode==='move')say('Select presets, then choose Move Selected.');});
   $('cp-delete-mode').addEventListener('click',()=>{state.mode=state.mode==='delete'?'':'delete';state.selected.clear();updateModeButtons();render();if(state.mode==='delete')say('Select presets, then choose Delete Selected.');});
