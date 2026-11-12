@@ -4,6 +4,7 @@ let dataset=null,fileName="dataset.json",done=false;
 const imageUrlCache=new Map();
 let multiSelectActive=false;
 const selectedCardIds=new Set();
+
 const makeId=p=>p+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
 const galleryObserver="IntersectionObserver" in window?new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){galleryObserver.unobserve(entry.target);void loadGalleryTile(entry.target)}}},{rootMargin:"300px 0px"}):null;
 function pages(){try{const v=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(v)?v:[]}catch{return[]}}
