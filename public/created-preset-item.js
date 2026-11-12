@@ -16,7 +16,12 @@
   const titleNode=document.getElementById('detail-title');
   const promptNode=document.getElementById('detail-prompt');
   const imageNode=document.getElementById('detail-image');
+  const videoNode=document.getElementById('detail-video');
   const imageEmpty=document.getElementById('detail-image-empty');
+  const mediaAddButton=document.getElementById('detail-media-add');
+  const mediaReplaceButton=document.getElementById('detail-media-replace');
+  const mediaRemoveButton=document.getElementById('detail-media-remove');
+  const mediaInput=document.getElementById('detail-media-input');
   const statusNode=document.getElementById('detail-save-status');
   const editMenuButton=document.getElementById('preset-edit-menu-button');
   const editMenu=document.getElementById('preset-edit-menu');
@@ -71,6 +76,43 @@
       tx.onerror=()=>reject(tx.error||new Error('Could not save tag information.'));
       tx.onabort=()=>reject(tx.error||new Error('Preset no longer exists.'));
     });
+  }
+  function renderMedia(thumbnail){
+    imageNode.hidden=true;imageNode.removeAttribute('src');
+    videoNode.pause();videoNode.hidden=true;videoNode.removeAttribute('src');videoNode.load();
+    const dataUrl=thumbnail&&thumbnail.dataUrl;
+    const hasMedia=typeof dataUrl==='string'&&dataUrl.startsWith('data:');
+    imageEmpty.hidden=hasMedia;
+    mediaAddButton.hidden=hasMedia;
+    mediaReplaceButton.hidden=!hasMedia;
+    mediaRemoveButton.hidden=!hasMedia;
+    if(!hasMedia)return;
+    if((thumbnail.type||'').startsWith('video/')||dataUrl.startsWith('data:video/')){
+      videoNode.src=dataUrl;videoNode.hidden=false;
+    }else if(dataUrl.startsWith('data:image/')){
+      imageNode.src=dataUrl;imageNode.hidden=false;
+    }else{
+      imageEmpty.hidden=false;mediaAddButton.hidden=false;mediaReplaceButton.hidden=true;mediaRemoveButton.hidden=true;
+    }
+  }
+  async function readMediaFile(file){
+    if(!file.type.startsWith('image/')&&file.type!=='video/mp4')throw new Error('Choose an image or MP4 video.');
+    if(file.size>20*1024*1024)throw new Error('Choose a file smaller than 20 MB.');
+    if(file.type==='video/mp4'){
+      const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>typeof reader.result==='string'?resolve(reader.result):reject(new Error('Could not read video.'));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);});
+      return {dataUrl,width:0,height:0,type:file.type,size:file.size};
+    }
+    let bitmap;try{bitmap=await createImageBitmap(file);}catch{throw new Error('This image could not be opened.');}
+    try{
+      if(bitmap.width*bitmap.height>24000000)throw new Error('Choose an image up to 24 megapixels.');
+      const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+      const context=canvas.getContext('2d');if(!context)throw new Error('Could not prepare image.');
+      context.drawImage(bitmap,0,0);
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Could not prepare image.')),'image/webp',.82));
+      const saved=blob.size<file.size?blob:file;
+      const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>typeof reader.result==='string'?resolve(reader.result):reject(new Error('Could not read image.'));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(saved);});
+      return {dataUrl,width:bitmap.width,height:bitmap.height,type:saved.type||file.type,size:saved.size};
+    }finally{bitmap.close();}
   }
   function renderTags(){
     tagsList.replaceChildren();
@@ -195,10 +237,25 @@
       statusNode.textContent=wasEditing?'Updating tag…':'Saving tag…';
       void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent=wasEditing?'Tag updated':'Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
     });
-    const dataUrl=preset.thumbnail&&preset.thumbnail.dataUrl;
-    if(typeof dataUrl==='string'&&dataUrl.startsWith('data:image/')){
-      imageNode.src=dataUrl;imageNode.hidden=false;imageEmpty.hidden=true;
-    }
+    renderMedia(preset.thumbnail);
+    mediaAddButton.addEventListener('click',()=>mediaInput.click());
+    mediaReplaceButton.addEventListener('click',()=>mediaInput.click());
+    mediaInput.addEventListener('change',async()=>{
+      const file=mediaInput.files&&mediaInput.files[0];if(!file)return;
+      statusNode.textContent='Uploading media…';
+      try{
+        const thumbnail=await readMediaFile(file);
+        await savePresetField('thumbnail',thumbnail);
+        renderMedia(thumbnail);statusNode.textContent='Media saved';
+      }catch(error){statusNode.textContent=error.message||'Could not save media';}
+      finally{mediaInput.value='';}
+    });
+    mediaRemoveButton.addEventListener('click',async()=>{
+      if(!window.confirm('Remove this media from the preset?'))return;
+      statusNode.textContent='Removing media…';
+      try{await savePresetField('thumbnail',null);renderMedia(null);statusNode.textContent='Media removed';}
+      catch(error){statusNode.textContent=error.message||'Could not remove media';}
+    });
     let saveTimer=null;
     promptNode.addEventListener('input',()=>{
       statusNode.textContent='Saving…';
