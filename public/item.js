@@ -5,6 +5,7 @@
   const promptNode=document.getElementById("detail-prompt");
   const imageNode=document.getElementById("detail-image");
   const imageEmpty=document.getElementById("detail-image-empty");
+  const convertButton=document.getElementById("convert-to-preset");
   const id=new URLSearchParams(window.location.search).get("id");
   function openDb(){
     return new Promise((resolve,reject)=>{
@@ -41,7 +42,53 @@
       imageEmpty.textContent="Card image unavailable";return;
     }
     promptNode.value=typeof item.prompt==="string"?item.prompt:"";
-    void loadImage(item.images&&item.images[0]);
+    const mediaRef=item.images&&item.images[0];
+    void loadImage(mediaRef);
+    convertButton.addEventListener("click",async()=>{
+      const title=(item.name||promptNode.value.trim().split(/\\s+/).slice(0,4).join(" ")||"Prompt Vault Preset").trim();
+      if(!window.confirm('Create a copy of "'+title+'" in the main Created Presets page?'))return;
+      convertButton.disabled=true;convertButton.textContent="Creating…";
+      let database;
+      try{
+        let thumbnail=null;
+        if(mediaRef&&mediaRef.cacheKey){
+          database=await openDb();
+          const blob=await new Promise((resolve,reject)=>{
+            const request=database.transaction(STORE,"readonly").objectStore(STORE).get(mediaRef.cacheKey);
+            request.onsuccess=()=>resolve(request.result||null);
+            request.onerror=()=>reject(request.error||new Error("Could not read the Prompt Vault image."));
+          });
+          if(blob){
+            const dataUrl=await new Promise((resolve,reject)=>{
+              const reader=new FileReader();reader.onload=()=>typeof reader.result==="string"?resolve(reader.result):reject(new Error("Could not prepare the image."));
+              reader.onerror=()=>reject(reader.error||new Error("Could not read the image."));reader.readAsDataURL(blob);
+            });
+            thumbnail={dataUrl,width:0,height:0,type:blob.type||mediaRef.mimeType||"application/octet-stream",size:blob.size||0};
+          }
+        }
+        const presetDb=await new Promise((resolve,reject)=>{
+          const request=indexedDB.open("prompt-vault-created-presets-v1",1);
+          request.onupgradeneeded=()=>{request.transaction.abort();reject(new Error("Created Presets storage is not initialized. Open the Created Presets hub first, then try again."));};
+          request.onsuccess=()=>resolve(request.result);
+          request.onerror=()=>reject(request.error||new Error("Could not open Created Presets storage."));
+        });
+        await new Promise((resolve,reject)=>{
+          const tx=presetDb.transaction("presets","readwrite");
+          const preset={id:"preset-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2),title,prompt:promptNode.value,createdAt:Date.now()};
+          if(thumbnail)preset.thumbnail=thumbnail;
+          tx.objectStore("presets").add(preset);
+          tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Could not create preset."));
+          tx.onabort=()=>reject(tx.error||new Error("Could not create preset."));
+        });
+        presetDb.close();
+        window.alert("A copy was added to the main Created Presets page.");
+      }catch(error){
+        window.alert(error.message||"Could not convert this card to a preset.");
+      }finally{
+        if(database)database.close();
+        convertButton.disabled=false;convertButton.textContent="Convert to Preset";
+      }
+    });
     promptNode.addEventListener("input",()=>{
       try{
         const stored=JSON.parse(localStorage.getItem(KEY)||"[]");
