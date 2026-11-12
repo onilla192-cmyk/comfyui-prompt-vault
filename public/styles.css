@@ -796,3 +796,39 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
   justify-content: space-between;
   gap: 28px;
 }
+
+
+/* Folder icon and divider; folder count intentionally omitted. */
+.created-presets-page .cp-folder-open {
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+.created-presets-page .cp-folder-icon {
+  display: grid;
+  flex: 0 0 24px;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: #c7a94a;
+}
+.created-presets-page .cp-folder-icon svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.created-presets-page .cp-folder-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 24px;
+  background: #454545;
+}
+.created-presets-page .cp-folder-open strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
