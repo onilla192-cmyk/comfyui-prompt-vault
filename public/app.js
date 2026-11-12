@@ -16,3 +16,32 @@ function renderPreview(){const list=$("preview-list");list.replaceChildren();$("
 async function importDataset(){if(!dataset)return;const useImages=$("import-images").checked,usePrompts=$("import-prompts").checked,skip=document.querySelector('input[name="duplicates"]:checked').value==="skip";if(!useImages&&!usePrompts){showError("Choose prompts, images, or both.");return}confirmButton.disabled=true;confirmButton.textContent="Importing…";const existing=pages(),known=new Set(existing.flatMap(p=>(p.items||[]).map(i=>i.prompt).filter(Boolean))),items=[];let images=0,duplicates=0,invalid=0;for(const src of dataset.items){if(skip&&src.prompt&&known.has(src.prompt)){duplicates++;continue}const refs=[];if(useImages)for(const image of src.images){try{const blob=decodeDataUrl(image.data),key=makeId("media");await saveBlob(key,blob);refs.push({id:makeId("ref"),cacheKey:key,filename:image.filename,mimeType:image.mimeType||blob.type});images++}catch{invalid++}}const prompt=usePrompts?src.prompt:"";if(prompt||refs.length){items.push({id:makeId("item"),name:prompt.trim().split(/\s+/).slice(0,4).join(" ")||"Imported item",prompt,images:refs});if(src.prompt)known.add(src.prompt)}}const page={id:makeId("dataset"),name:fileName.replace(/\.json$/i,"")||"Imported",importedAt:new Date().toISOString(),items};try{localStorage.setItem(KEY,JSON.stringify([...existing,page]))}catch{confirmButton.disabled=false;confirmButton.textContent="Import dataset";showError("Could not store dataset metadata in this browser.");return}dataset=null;$("import-summary").textContent="Imported "+items.length+" records and "+images+" images. "+duplicates+" duplicates skipped; "+invalid+" invalid images.";$("import-summary").hidden=false;$("preview-list").replaceChildren();confirmButton.disabled=false;confirmButton.textContent="Done";done=true;await renderGallery()}
 async function renderGallery(){const items=pages().flatMap(p=>p.items||[]),add=$("add-item");gallery.querySelectorAll(".gallery-empty,.gallery-item").forEach(n=>n.remove());for(const item of items.slice(0,14)){const tile=document.createElement("article");tile.className="gallery-tile gallery-item";const ref=item.images&&item.images[0];if(ref){try{const blob=await readBlob(ref.cacheKey);if(blob){const img=document.createElement("img"),url=URL.createObjectURL(blob);img.src=url;img.alt=item.name||"Imported image";img.addEventListener("load",()=>URL.revokeObjectURL(url),{once:true});tile.append(img)}}catch{}}if(!tile.firstChild){tile.classList.add("gallery-item-no-image");const label=document.createElement("span");label.textContent=item.name||"Imported item";tile.append(label)}gallery.insertBefore(tile,add.nextSibling)}for(let i=Math.min(items.length,14);i<14;i++){const n=document.createElement("div");n.className="gallery-tile gallery-empty";n.setAttribute("aria-hidden","true");gallery.append(n)}}
 $("import-button").addEventListener("click",()=>{dialog.hidden=false;document.body.classList.add("dialog-open");reset();fileInput.click()});$("choose-file").addEventListener("click",()=>fileInput.click());fileInput.addEventListener("change",e=>openFile(e.target.files&&e.target.files[0]));$("dialog-close").addEventListener("click",close);$("cancel-import").addEventListener("click",close);confirmButton.addEventListener("click",()=>done?close():void importDataset());dialog.addEventListener("click",e=>{if(e.target===dialog)close()});dropzone.addEventListener("dragover",e=>{e.preventDefault();dropzone.classList.add("drag-over")});dropzone.addEventListener("dragleave",()=>dropzone.classList.remove("drag-over"));dropzone.addEventListener("drop",e=>{e.preventDefault();dropzone.classList.remove("drag-over");openFile(e.dataTransfer&&e.dataTransfer.files[0])});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!dialog.hidden)close()});renderGallery();
+
+const deleteDialog=document.getElementById("delete-dialog");
+function openDeleteDialog(){deleteDialog.hidden=false;document.body.classList.add("dialog-open");document.getElementById("cancel-delete").focus()}
+function closeDeleteDialog(){deleteDialog.hidden=true;document.body.classList.remove("dialog-open")}
+async function deleteAllData(){
+  const button=document.getElementById("confirm-delete");
+  button.disabled=true;button.textContent="Deleting…";
+  try{
+    localStorage.removeItem(KEY);
+    const d=await db();
+    await new Promise((resolve,reject)=>{
+      const tx=d.transaction(STORE,"readwrite");
+      tx.objectStore(STORE).clear();
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error||new Error("Could not clear image storage."));
+      tx.onabort=()=>reject(tx.error||new Error("Deletion was interrupted."));
+    });
+    d.close();
+    await renderGallery();
+    closeDeleteDialog();
+  }catch(error){
+    button.disabled=false;button.textContent="Delete";
+    window.alert(error instanceof Error?error.message:"Could not delete all data.");
+  }
+}
+document.getElementById("delete-button").addEventListener("click",openDeleteDialog);
+document.getElementById("cancel-delete").addEventListener("click",closeDeleteDialog);
+document.getElementById("confirm-delete").addEventListener("click",()=>void deleteAllData());
+deleteDialog.addEventListener("click",event=>{if(event.target===deleteDialog)closeDeleteDialog()});

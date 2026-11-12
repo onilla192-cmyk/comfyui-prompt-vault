@@ -22,6 +22,7 @@
 <div class="gallery-tile gallery-empty" aria-hidden="true"></div>
 </section></main>
 <footer class="site-footer" aria-label="Site footer">
+<button class="delete-button" id="delete-button" type="button" aria-label="Delete all data" title="Delete all data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
 <button class="import-button" id="import-button" type="button" aria-label="Import JSON" title="Import JSON"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></svg></button>
 </footer>
 <input id="dataset-file" type="file" accept=".json,application/json" hidden>
@@ -37,4 +38,5 @@
 <div class="import-summary" id="import-summary" hidden></div>
 <div class="import-actions"><button id="cancel-import" class="dialog-action secondary" type="button">Cancel</button><button id="confirm-import" class="dialog-action primary" type="button">Import dataset</button></div>
 </div></div></section></div>
+<div class="import-backdrop" id="delete-dialog" hidden><section class="import-dialog delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description"><header class="import-dialog-header"><div><h2 id="delete-title">Delete all data?</h2><p id="delete-description">This permanently deletes all imported dataset records and images stored in this browser. This cannot be undone.</p></div></header><div class="delete-dialog-actions"><button class="dialog-action secondary" id="cancel-delete" type="button">Cancel</button><button class="dialog-action danger" id="confirm-delete" type="button">Delete</button></div></section></div>
 <script src="/app.js" defer></script></body></html>
