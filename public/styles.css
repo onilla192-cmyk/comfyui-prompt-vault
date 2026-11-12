@@ -88,3 +88,40 @@ body { min-height: 100vh; }
     gap: 16px;
   }
 }
+
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+}
+.import-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #555;
+  border-radius: 0;
+  background: #222;
+  color: #f8fafc;
+  cursor: pointer;
+}
+.import-button svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.import-button:hover { background: #2b2b2b; }
+.import-button:focus-visible {
+  outline: 2px solid #f8fafc;
+  outline-offset: 3px;
+}
+@media (max-width: 560px) {
+  .site-footer { padding: 0 16px; }
+}
