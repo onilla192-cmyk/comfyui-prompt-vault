@@ -933,3 +933,40 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 }
 .preset-tag-editor textarea { resize: vertical; }
 .preset-tag-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+
+.preset-tag-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.preset-tag-picker {
+  display:grid;
+  gap:7px;
+  padding:9px;
+  border:1px solid #454545;
+  background:#1b1b1b;
+}
+.preset-tag-picker[hidden] { display:none; }
+.preset-tag-picker label { color:#bbb; font-size:11px; }
+.preset-tag-picker select {
+  width:100%;
+  min-width:0;
+  min-height:32px;
+  padding:6px 8px;
+  border:1px solid #444;
+  border-radius:0;
+  background:#111;
+  color:#eee;
+  font:inherit;
+  font-size:12px;
+}
+.preset-tag-picker>div { display:flex; justify-content:flex-end; gap:7px; }
+.preset-tag-picker button {
+  min-height:30px;
+  padding:0 9px;
+  border:1px solid #555;
+  border-radius:0;
+  background:#252525;
+  color:#eee;
+  font:inherit;
+  font-size:11px;
+  cursor:pointer;
+}
+.preset-tag-picker button.danger { border-color:#a33b3b; color:#ffbaba; }
