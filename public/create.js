@@ -53,7 +53,8 @@
   cancelLink.addEventListener("click",event=>{
     event.preventDefault();
     rememberPosition();
-    window.location.href="/";
+    if(window.history.length>1)window.history.back();
+    else window.location.assign("/");
   });
   saveButton.addEventListener("click",async()=>{
     if(!selectedFile){showError("Choose an image before creating the card.");return;}
