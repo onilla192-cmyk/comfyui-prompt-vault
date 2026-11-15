@@ -47,7 +47,15 @@
   }
   const uid = (prefix) => prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2);
   const say = (message, error = false) => { $('cp-status').textContent = message; $('cp-status').classList.toggle('error', error); };
-  const visible = () => state.presets.filter((p) => (p.folderId || null) === state.folderId).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const visible = () => {
+    const inCurrentFolder = state.presets.filter((p) => (p.folderId || null) === state.folderId);
+    // Keep the main workspace populated if presets are currently filed in folders.
+    // Folder views remain filtered to the selected folder.
+    const items = !state.folderId && inCurrentFolder.length === 0 && state.presets.length
+      ? state.presets
+      : inCurrentFolder;
+    return items.sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
+  };
   const safeText = (tag, value, cls) => { const el = document.createElement(tag); if (cls) el.className = cls; el.textContent = value; return el; };
   async function refresh() {
     const [presets, folders] = await Promise.all([readAll(PRESETS), readAll(FOLDERS)]);
