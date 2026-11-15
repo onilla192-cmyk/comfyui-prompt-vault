@@ -232,6 +232,11 @@
       try{
         await savePresetField('starred',next);
         renderStarState();
+        if(typeof BroadcastChannel!=='undefined'){
+          const updates=new BroadcastChannel('created-presets-live-updates');
+          updates.postMessage({type:'preset-updated',id,starred:next});
+          updates.close();
+        }
         statusNode.textContent=next?'Preset starred':'Star removed';
       }catch(error){
         statusNode.textContent=error.message||'Could not update star';
