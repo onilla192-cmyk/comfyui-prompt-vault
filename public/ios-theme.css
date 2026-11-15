@@ -1,0 +1,559 @@
+/*
+  iOS theme for Prompt Vault and Created Presets.
+  Loads after styles.css and overrides it. Remove the <link> to this file to go back.
+  Follows the device appearance (light or dark) using iOS system colors.
+  Every selector is prefixed with :root:root so it beats the older, more specific rules in styles.css.
+*/
+
+/* ---------- Tokens ---------- */
+:root:root {
+  color-scheme: light dark;
+  --ios-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+
+  /* Light appearance */
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --card-2: #f2f2f7;
+  --fill: rgba(120, 120, 128, .12);
+  --fill-strong: rgba(120, 120, 128, .2);
+  --sep: rgba(60, 60, 67, .16);
+  --label: #000000;
+  --label-2: rgba(60, 60, 67, .62);
+  --label-3: rgba(60, 60, 67, .38);
+  --blue: #007aff;
+  --blue-tint: rgba(0, 122, 255, .12);
+  --red: #ff3b30;
+  --red-tint: rgba(255, 59, 48, .12);
+  --green: #34c759;
+  --yellow: #ff9f0a;
+  --yellow-tint: rgba(255, 204, 0, .24);
+  --bar: rgba(249, 249, 249, .82);
+  --sheet: rgba(255, 255, 255, .86);
+  --scrim: rgba(0, 0, 0, .32);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 4px 14px rgba(0, 0, 0, .06);
+  --shadow-pop: 0 10px 40px rgba(0, 0, 0, .18);
+  --r-card: 14px;
+  --r-ctl: 10px;
+  --r-sheet: 20px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+
+  font-family: var(--ios-font);
+  background: var(--bg);
+  color: var(--label);
+}
+@media (prefers-color-scheme: dark) {
+  :root:root {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --card-2: #2c2c2e;
+    --fill: rgba(120, 120, 128, .24);
+    --fill-strong: rgba(120, 120, 128, .36);
+    --sep: rgba(84, 84, 88, .55);
+    --label: #ffffff;
+    --label-2: rgba(235, 235, 245, .62);
+    --label-3: rgba(235, 235, 245, .32);
+    --blue: #0a84ff;
+    --blue-tint: rgba(10, 132, 255, .2);
+    --red: #ff453a;
+    --red-tint: rgba(255, 69, 58, .2);
+    --green: #30d158;
+    --yellow: #ffd60a;
+    --yellow-tint: rgba(255, 214, 10, .2);
+    --bar: rgba(22, 22, 24, .78);
+    --sheet: rgba(44, 44, 46, .88);
+    --scrim: rgba(0, 0, 0, .55);
+    --shadow: 0 0 0 .5px rgba(255, 255, 255, .04);
+    --shadow-pop: 0 14px 50px rgba(0, 0, 0, .6);
+  }
+}
+
+/* ---------- Base ---------- */
+:root:root,
+:root:root body,
+:root:root .site-main,
+:root:root .detail-main { background: var(--bg); color: var(--label); }
+:root:root body { font-family: var(--ios-font); -webkit-font-smoothing: antialiased; letter-spacing: -.01em; }
+:root:root ::selection { background: var(--blue-tint); }
+:root:root input,
+:root:root textarea,
+:root:root select { accent-color: var(--blue); caret-color: var(--blue); }
+
+/* ---------- Navigation bar and tab bar ---------- */
+:root:root .site-header,
+:root:root .site-footer {
+  background: var(--bar);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border-color: var(--sep);
+}
+:root:root .site-header { justify-content: center; border-bottom-width: .5px; }
+:root:root .site-footer { border-top-width: .5px; gap: 10px; }
+:root:root .site-header-title {
+  color: var(--label);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+
+/* ---------- Buttons ---------- */
+:root:root .dialog-action,
+:root:root .detail-back,
+:root:root .convert-preset-button,
+:root:root .cp-toolbar button,
+:root:root .created-presets-page .cp-toolbar > button,
+:root:root .cp-folder-card button,
+:root:root .cp-current-folder button,
+:root:root .cp-card-actions button,
+:root:root .cp-dialog button,
+:root:root .detail-prompt-toolbar > button,
+:root:root .detail-media-actions button,
+:root:root .preset-tag-toggle,
+:root:root .preset-add-tag,
+:root:root .preset-tag-editor button,
+:root:root .preset-tag-picker button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--fill);
+  color: var(--blue);
+  font-family: var(--ios-font);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  text-decoration: none;
+  transition: opacity 120ms var(--ease), transform 120ms var(--ease), background-color 160ms var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+:root:root .dialog-action:hover,
+:root:root .detail-back:hover,
+:root:root .convert-preset-button:hover,
+:root:root .cp-toolbar button:hover,
+:root:root .created-presets-page .cp-toolbar > button:hover,
+:root:root .cp-card-actions button:hover,
+:root:root .cp-dialog button:hover,
+:root:root .detail-prompt-toolbar > button:hover,
+:root:root .detail-media-actions button:hover,
+:root:root .preset-add-tag:hover { background: var(--fill-strong); }
+:root:root .dialog-action:active,
+:root:root .detail-back:active,
+:root:root .convert-preset-button:active,
+:root:root .cp-toolbar button:active,
+:root:root .cp-card-actions button:active,
+:root:root .cp-dialog button:active,
+:root:root .detail-prompt-toolbar > button:active,
+:root:root .detail-media-actions button:active,
+:root:root .preset-tag-toggle:active,
+:root:root .preset-add-tag:active { opacity: .55; transform: scale(.97); }
+:root:root .dialog-action:disabled,
+:root:root .convert-preset-button:disabled,
+:root:root .created-presets-page .cp-toolbar > button:disabled { opacity: .4; }
+
+/* Primary: filled blue */
+:root:root .dialog-action.primary,
+:root:root .cp-dialog button.primary {
+  border: 0;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 600;
+}
+:root:root .dialog-action.primary:hover,
+:root:root .cp-dialog button.primary:hover { background: var(--blue); filter: brightness(1.06); }
+:root:root .dialog-action.secondary { background: var(--fill); color: var(--blue); }
+
+/* Destructive: tinted red */
+:root:root .dialog-action.danger,
+:root:root .cp-dialog button.danger,
+:root:root .cp-card-actions button.danger,
+:root:root .preset-tag-picker button.danger,
+:root:root .detail-media-actions .danger {
+  border: 0;
+  background: var(--red-tint);
+  color: var(--red);
+}
+:root:root .dialog-action.danger:hover,
+:root:root .cp-dialog button.danger:hover { background: var(--red-tint); filter: brightness(1.1); }
+
+/* Active toggle in the toolbar */
+:root:root .cp-toolbar button.active,
+:root:root .created-presets-page .cp-toolbar > button.active,
+:root:root .preset-tag-toggle[aria-expanded="true"] { background: var(--blue); color: #fff; }
+
+/* Icon buttons in the footer */
+:root:root .add-button,
+:root:root .import-button,
+:root:root .multiselect-button,
+:root:root .delete-button,
+:root:root .light-toggle {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--blue);
+  -webkit-tap-highlight-color: transparent;
+}
+:root:root .add-button:hover,
+:root:root .import-button:hover,
+:root:root .multiselect-button:hover,
+:root:root .light-toggle:hover { background: var(--fill-strong); }
+:root:root .delete-button { background: var(--red-tint); color: var(--red); }
+:root:root .delete-button:hover { background: var(--red-tint); filter: brightness(1.1); }
+:root:root .add-button svg,
+:root:root .import-button svg,
+:root:root .multiselect-button svg,
+:root:root .delete-button svg,
+:root:root .light-toggle svg { stroke-linecap: round; stroke-linejoin: round; }
+:root:root .light-toggle.is-on { background: var(--yellow-tint); color: var(--yellow); }
+:root:root .light-toggle.is-on svg { fill: var(--yellow-tint); }
+:root:root .import-button:active,
+:root:root .multiselect-button:active,
+:root:root .delete-button:active,
+:root:root .light-toggle:active { opacity: .55; transform: scale(.94); }
+:root:root .dialog-close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 20px;
+  line-height: 1;
+}
+:root:root .cp-dialog > header button { width: 30px; min-height: 30px; padding: 0; border-radius: 50%; color: var(--label-2); font-size: 20px; }
+
+/* Keyboard focus */
+:root:root button:focus-visible,
+:root:root a:focus-visible,
+:root:root .gallery-item:focus-visible,
+:root:root .cp-preset-card:focus-visible { outline: 3px solid var(--blue-tint); outline-offset: 1px; box-shadow: 0 0 0 1.5px var(--blue); }
+
+/* ---------- Gallery (Prompt Vault) ---------- */
+:root:root .gallery-tile {
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+:root:root .add-button.gallery-tile { width: auto; height: auto; color: var(--blue); }
+:root:root .add-button.gallery-tile svg { width: 30px; height: 30px; stroke-width: 1.8; }
+:root:root .gallery-item { transition: transform 180ms var(--ease), opacity 120ms var(--ease); }
+:root:root .gallery-item:active { transform: scale(.98); }
+:root:root .gallery-item-no-image { color: var(--label-2); font-size: 14px; }
+:root:root .gallery-item.is-selected { outline: 3px solid var(--blue); outline-offset: -3px; }
+:root:root .gallery-select-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  top: 10px;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .28);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+:root:root .gallery-select-checkbox:checked {
+  border-color: var(--blue);
+  background: var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+
+/* ---------- Sheets and alerts ---------- */
+:root:root .import-backdrop,
+:root:root .cp-dialog-backdrop {
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+:root:root .import-dialog,
+:root:root .cp-dialog {
+  border: 0;
+  border-radius: var(--r-sheet);
+  background: var(--sheet);
+  color: var(--label);
+  box-shadow: var(--shadow-pop);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+}
+:root:root .import-dialog-header,
+:root:root .cp-dialog > header { border-color: var(--sep); border-bottom-width: .5px; }
+:root:root .import-dialog-header h2,
+:root:root .cp-dialog h2 { font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+:root:root .import-dialog-header p { color: var(--label-2); font-size: 13px; line-height: 1.4; }
+:root:root .delete-dialog { width: min(340px, 100%); text-align: center; }
+:root:root .delete-dialog .import-dialog-header { justify-content: center; }
+:root:root .delete-dialog-actions { justify-content: center; gap: 8px; }
+:root:root .delete-dialog-actions .dialog-action { flex: 1; }
+
+/* Import flow */
+:root:root .import-dropzone {
+  border: 1.5px dashed var(--label-3);
+  border-radius: 16px;
+  background: var(--fill);
+  color: var(--label-2);
+}
+:root:root .import-dropzone.drag-over { border-color: var(--blue); background: var(--blue-tint); }
+:root:root .import-dropzone svg { stroke: var(--blue); stroke-linecap: round; stroke-linejoin: round; }
+:root:root .import-dropzone strong { color: var(--label); font-weight: 600; }
+:root:root .import-stats div,
+:root:root .import-preview-list { border: 0; border-radius: 12px; background: var(--fill); }
+:root:root .import-stats span,
+:root:root .preview-more,
+:root:root .duplicate-options > span { color: var(--label-2); }
+:root:root .import-preview-row { border-bottom: .5px solid var(--sep); }
+:root:root .import-preview-row img,
+:root:root .preview-image-empty { border-radius: 8px; background: var(--fill-strong); color: var(--label-3); }
+:root:root .import-preview-row p,
+:root:root .import-options { color: var(--label); }
+:root:root .duplicate-options { border-top: .5px solid var(--sep); }
+:root:root .import-error { border: 0; border-radius: 12px; background: var(--red-tint); color: var(--red); }
+:root:root .import-summary { border: 0; border-radius: 12px; background: rgba(52, 199, 89, .16); color: var(--green); }
+
+/* ---------- Form fields ---------- */
+:root:root .cp-dialog input,
+:root:root .cp-dialog textarea,
+:root:root .cp-dialog select,
+:root:root .preset-tag-editor input,
+:root:root .preset-tag-editor textarea,
+:root:root .preset-tag-picker select {
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 16px;
+}
+:root:root .cp-dialog input:focus,
+:root:root .cp-dialog textarea:focus,
+:root:root .cp-dialog select:focus,
+:root:root .preset-tag-editor input:focus,
+:root:root .preset-tag-editor textarea:focus { outline: 0; box-shadow: 0 0 0 2px var(--blue); }
+:root:root .cp-dialog > label,
+:root:root .preset-tag-editor label,
+:root:root .preset-tag-picker label { color: var(--label-2); font-size: 13px; }
+:root:root .cp-dialog ::placeholder,
+:root:root .detail-prompt::placeholder { color: var(--label-3); }
+:root:root .cp-dialog select,
+:root:root .preset-tag-picker select { -webkit-appearance: menulist-button; appearance: auto; }
+
+/* ---------- Created Presets library ---------- */
+:root:root .cp-library-panel {
+  border: 0;
+  border-radius: 20px;
+  background: transparent;
+  box-shadow: none;
+}
+:root:root #cp-status { color: var(--label-2); font-size: 13px; }
+:root:root #cp-status.error { color: var(--red); }
+:root:root .created-presets-page .cp-library-panel > #cp-folder-grid { border-right: .5px solid var(--sep); }
+
+/* Folders behave like rows in a grouped list */
+:root:root .cp-folder-card,
+:root:root .created-presets-page .cp-folder-card {
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+:root:root .cp-folder-card button { min-height: 0; padding: 0; background: transparent; color: var(--label); }
+:root:root .cp-folder-open strong { color: var(--label); font-size: 15px; font-weight: 500; letter-spacing: -.01em; }
+:root:root .cp-folder-open small { color: var(--label-2); }
+:root:root .created-presets-page .cp-folder-card.is-clicked { background: var(--blue-tint); box-shadow: 0 0 0 1.5px var(--blue); }
+:root:root .created-presets-page .cp-folder-icon { color: var(--blue); }
+:root:root .created-presets-page .cp-folder-icon svg { stroke-linecap: round; stroke-linejoin: round; }
+:root:root .created-presets-page .cp-folder-divider { width: .5px; background: var(--sep); }
+:root:root .cp-folder-tools { border-top: .5px solid var(--sep); }
+:root:root .created-presets-page .cp-current-folder {
+  border: 0;
+  border-radius: 12px;
+  background: var(--sheet);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+:root:root .cp-empty {
+  border: 1.5px dashed var(--label-3);
+  border-radius: var(--r-card);
+  color: var(--label-2);
+}
+
+/* Preset cards */
+:root:root .cp-preset-card,
+:root:root .created-presets-page .cp-preset-card {
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: transform 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+:root:root .cp-preset-card > img,
+:root:root .cp-preset-card > video,
+:root:root .cp-preset-card img,
+:root:root .cp-preset-card video { border-radius: 0; background: var(--card-2); }
+:root:root .created-presets-page .cp-preset-placeholder { background: var(--card-2); color: var(--label-3); }
+:root:root .cp-preset-video-thumb { background: var(--card-2); }
+:root:root .created-presets-page .cp-preset-card .cp-preset-copy {
+  border: 0;
+  border-top: .5px solid var(--sep);
+  border-radius: 0;
+  background: var(--card);
+}
+:root:root .created-presets-page .cp-preset-card .cp-preset-copy strong,
+:root:root .cp-preset-card strong { color: var(--label); font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+:root:root .cp-card-actions button { min-height: 32px; padding: 0 10px; font-size: 13px; }
+:root:root .cp-preset-card.selected { outline: 3px solid var(--blue); outline-offset: -3px; }
+:root:root .cp-preset-card:active,
+:root:root .cp-folder-card:active { transform: scale(.98); }
+@media (hover: hover) and (pointer: fine) {
+  :root:root .cp-folder-card:hover,
+  :root:root .cp-preset-card:hover {
+    transform: none;
+    border-color: transparent;
+    background-color: var(--card);
+    box-shadow: var(--shadow), 0 6px 20px rgba(0, 0, 0, .1);
+  }
+}
+:root:root .created-presets-page .cp-preset-star-badge {
+  border: 0;
+  background: var(--bar);
+  color: var(--yellow);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
+}
+:root:root .cp-preset-video-thumb .cp-video-play,
+:root:root #cp-thumbnail-preview button {
+  border: 0;
+  background: var(--bar);
+  color: var(--label);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+:root:root #cp-thumbnail-preview {
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--label-2);
+  overflow: hidden;
+}
+:root:root .cp-thumbnail-editor small { color: var(--label-2); }
+
+/* Context menus: folder, edit and More */
+:root:root #cp-more-menu,
+:root:root .created-presets-page .cp-folder-menu,
+:root:root .detail-edit-menu {
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--sheet);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+}
+:root:root #cp-more-menu button,
+:root:root .created-presets-page .cp-folder-menu button,
+:root:root .detail-edit-menu button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--label);
+  font-size: 16px;
+  font-weight: 400;
+  text-align: left;
+}
+:root:root #cp-more-menu button + button,
+:root:root .created-presets-page .cp-folder-menu button + button,
+:root:root .detail-edit-menu button + button { border-top: .5px solid var(--sep); }
+:root:root #cp-more-menu button:hover,
+:root:root .created-presets-page .cp-folder-menu button:hover,
+:root:root .detail-edit-menu button:hover { background: var(--fill); }
+:root:root #cp-more-menu button:active,
+:root:root .created-presets-page .cp-folder-menu button:active,
+:root:root .detail-edit-menu button:active { background: var(--fill-strong); opacity: 1; transform: none; }
+:root:root .detail-edit-menu button.danger { color: var(--red); background: transparent; }
+:root:root .created-presets-page .cp-folder-backdrop {
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* ---------- Detail pages ---------- */
+:root:root .detail-heading { font-size: 28px; font-weight: 700; letter-spacing: -.03em; color: var(--label); }
+:root:root .detail-back { padding: 0 14px 0 10px; background: transparent; color: var(--blue); }
+:root:root .detail-back:hover { background: var(--fill); }
+:root:root .detail-image-wrap,
+:root:root .detail-prompt {
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+:root:root .detail-prompt { color: var(--label); font-size: 16px; line-height: 1.5; }
+:root:root .detail-prompt:focus { outline: 0; box-shadow: 0 0 0 2px var(--blue); }
+:root:root .detail-prompt:disabled { color: var(--label-2); }
+:root:root .detail-image-empty,
+:root:root .create-image-empty,
+:root:root .detail-empty { color: var(--label-2); }
+:root:root .detail-editor-label,
+:root:root .detail-save-status { color: var(--label-2); }
+:root:root .create-error { color: var(--red); }
+:root:root .create-save { min-width: 120px; }
+:root:root .detail-media-actions button { min-height: 34px; padding: 0 12px; background: var(--bar); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+:root:root .detail-media-actions #detail-media-add { padding: 0; border-radius: 50%; color: var(--blue); }
+:root:root .detail-image.detail-video { background: var(--card-2); }
+
+/* Star */
+:root:root .created-presets-page .preset-star-toggle {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--yellow);
+}
+:root:root .created-presets-page .preset-star-toggle.is-starred { background: var(--yellow-tint); border: 0; }
+
+/* Tags */
+:root:root .preset-tags-panel {
+  border-top: .5px solid var(--sep);
+  background: var(--bar);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+}
+:root:root .preset-tag-toggle,
+:root:root .preset-add-tag { min-height: 30px; padding: 0 12px; border-radius: 999px; font-size: 13px; }
+:root:root .preset-tag-info,
+:root:root .preset-tag-editor,
+:root:root .preset-tag-picker {
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--label);
+}
+:root:root .preset-tag-info { font-size: 13px; }
+:root:root .preset-tag-editor button,
+:root:root .preset-tag-picker button { min-height: 32px; font-size: 13px; }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 700px) {
+  :root:root .detail-heading { font-size: 22px; }
+  :root:root .detail-prompt { font-size: 14px; }
+  :root:root .created-presets-page .cp-toolbar > button { min-height: 34px; padding: 0 9px; font-size: 12px; }
+  :root:root .cp-card-actions button { min-height: 30px; font-size: 12px; }
+  :root:root .import-dialog,
+  :root:root .cp-dialog { border-radius: 18px; }
+}
+
+/* ---------- Scrollbars ---------- */
+:root:root * { scrollbar-width: thin; scrollbar-color: var(--label-3) transparent; }
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root:root *, :root:root *::before, :root:root *::after { transition: none !important; animation: none !important; }
+}
