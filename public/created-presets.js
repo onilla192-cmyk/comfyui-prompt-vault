@@ -155,6 +155,14 @@
     const items = visible();
     items.forEach(preset => {
       const card=document.createElement('article'); card.className='cp-preset-card';
+      if(preset.starred){
+        const starBadge=document.createElement('span');
+        starBadge.className='cp-preset-star-badge';
+        starBadge.textContent='★';
+        starBadge.setAttribute('aria-label','Starred preset');
+        starBadge.title='Starred';
+        card.append(starBadge);
+      }
       card.tabIndex=0;
       card.setAttribute('role','link');
       card.setAttribute('aria-label','Open preset: '+preset.title);
