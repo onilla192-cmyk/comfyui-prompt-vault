@@ -78,6 +78,15 @@
       tx.onabort=()=>reject(tx.error||new Error('Preset no longer exists.'));
     });
   }
+  videoNode.loop=true;
+  videoNode.addEventListener('click',()=>{
+    if(videoNode.paused){
+      const playback=videoNode.play();
+      if(playback&&typeof playback.catch==='function')playback.catch(()=>{});
+    }else{
+      videoNode.pause();
+    }
+  });
   function renderMedia(thumbnail){
     imageNode.hidden=true;imageNode.removeAttribute('src');
     videoNode.pause();videoNode.hidden=true;videoNode.removeAttribute('src');videoNode.load();
@@ -89,7 +98,7 @@
     mediaRemoveButton.hidden=!hasMedia;
     if(!hasMedia)return;
     if((thumbnail.type||'').startsWith('video/')||dataUrl.startsWith('data:video/')){
-      videoNode.src=dataUrl;videoNode.hidden=false;
+      videoNode.loop=true;videoNode.src=dataUrl;videoNode.hidden=false;
     }else if(dataUrl.startsWith('data:image/')){
       imageNode.src=dataUrl;imageNode.hidden=false;
     }else{
