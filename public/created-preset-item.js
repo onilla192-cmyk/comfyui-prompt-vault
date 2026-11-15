@@ -158,6 +158,23 @@
   }
   async function init(){
     if(!id)throw new Error('Preset not found.');
+    // Paint the lightweight card data immediately while IndexedDB loads the full preset.
+    let fastPreview=null;
+    try{
+      const cached=sessionStorage.getItem('cp-preset-fast-'+id);
+      if(cached){
+        fastPreview=JSON.parse(cached);
+        sessionStorage.removeItem('cp-preset-fast-'+id);
+      }
+    }catch{}
+    if(fastPreview&&typeof fastPreview==='object'){
+      titleNode.textContent=typeof fastPreview.title==='string'?fastPreview.title:'Preset';
+      document.title=(fastPreview.title||'Preset')+' · Created Presets';
+      promptNode.value=typeof fastPreview.prompt==='string'?fastPreview.prompt:'';
+      currentPreset={tags:Array.isArray(fastPreview.tags)?fastPreview.tags:[]};
+      renderTags();
+      statusNode.textContent='Loading preset…';
+    }
     database=await openDb();
     const preset=await getPreset(database);
     if(!preset)throw new Error('This preset could not be found. It may have been deleted.');
@@ -239,6 +256,7 @@
       void savePresetField('tags',tags).then(()=>{renderTags();closeTagEditor();statusNode.textContent=wasEditing?'Tag updated':'Tag saved';}).catch(error=>{statusNode.textContent=error.message||'Could not save tag';});
     });
     renderMedia(preset.thumbnail);
+    statusNode.textContent='';
     mediaAddButton.addEventListener('click',()=>mediaInput.click());
     mediaReplaceButton.addEventListener('click',()=>mediaInput.click());
     mediaInput.addEventListener('change',async()=>{
