@@ -190,7 +190,8 @@
           tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not delete preset.'));
           tx.onabort=()=>reject(tx.error||new Error('Could not delete preset.'));
         });
-        window.location.href='/';
+        if(window.history.length>1)window.history.back();
+        else window.location.assign('/alternate.html');
       }catch(error){statusNode.textContent=error.message||'Could not delete preset';}
     });
 
