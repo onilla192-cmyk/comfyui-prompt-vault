@@ -1555,3 +1555,21 @@ input,textarea,select {
   box-shadow:0 2px 8px rgba(0,0,0,.3);
   pointer-events:none;
 }
+
+
+/* Keep the Edit control in its own row so it never overlaps the star button. */
+.created-presets-page .detail-editor-wrap {
+  position:relative;
+}
+.created-presets-page .detail-prompt-toolbar {
+  position:relative !important;
+  top:auto !important;
+  right:auto !important;
+  display:flex !important;
+  justify-content:flex-end;
+  min-height:38px;
+  margin:0 0 8px;
+}
+.created-presets-page .detail-prompt-toolbar > button {
+  min-width:76px;
+}
