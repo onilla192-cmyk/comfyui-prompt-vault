@@ -6,10 +6,10 @@
   const backButton=document.getElementById('preset-detail-back');
   if(backButton)backButton.addEventListener('click',event=>{
     event.preventDefault();
-    if(document.referrer && new URL(document.referrer).origin===window.location.origin){
+    if(window.history.length>1){
       window.history.back();
     }else{
-      window.location.assign('/');
+      window.location.assign('/alternate.html');
     }
   });
 
