@@ -162,14 +162,12 @@
       else card.append(safeText('div','✦ Prompt card','cp-preset-placeholder'));
       const body=document.createElement('div'); body.className='cp-preset-copy';
       body.append(safeText('strong',preset.title),safeText('p',preset.prompt,'cp-preset-prompt')); card.append(body);
-      const actions=document.createElement('div'); actions.className='cp-card-actions';
       if (state.mode) {
+        const actions=document.createElement('div'); actions.className='cp-card-actions';
         const select=safeText('button',state.selected.has(preset.id)?'Selected':'Select'); select.type='button'; select.addEventListener('click',()=>{state.selected.has(preset.id)?state.selected.delete(preset.id):state.selected.add(preset.id);render();}); actions.append(select);
-      } else {
-        const open=safeText('button','Open'); open.type='button'; open.addEventListener('click',openDetail);
-        actions.append(open);
+        card.append(actions);
       }
-      card.append(actions); $('cp-card-grid').append(card);
+      $('cp-card-grid').append(card);
     });
     if (!items.length) $('cp-card-grid').append(safeText('p',state.folderId?'This folder is empty. Create a preset or move one here.':'Welcome to the Created Presets Hub. Presets are dumped here, unless saved into a folder. Create a preset using the New Preset button below.','cp-empty'));
     $('cp-folder-select').replaceChildren(new Option('Main Created Presets',''));
