@@ -469,6 +469,20 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 
 /* Created Presets page */
 .created-presets-main{position:fixed;inset:64px 0 64px;min-height:0;overflow:auto;padding:18px 24px 28px}
+.cp-library-panel{
+  max-width:1500px;
+  margin:0 auto;
+  padding:20px;
+  border:1px solid #393939;
+  border-radius:12px;
+  background:linear-gradient(145deg,#202020 0%,#191919 100%);
+  box-shadow:0 12px 32px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.035);
+}
+.cp-library-panel #cp-status{margin-bottom:12px}
+@media(max-width:600px){
+  .created-presets-main{padding:12px}
+  .cp-library-panel{padding:12px;border-radius:9px}
+}
 .cp-toolbar{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 16px}
 .cp-toolbar button,.cp-folder-card button,.cp-current-folder button,.cp-card-actions button,.cp-dialog button{min-height:38px;padding:0 13px;border:1px solid #555;border-radius:0;background:#222;color:#eee;font:inherit;font-size:12px;cursor:pointer}
 .cp-toolbar button:hover,.cp-folder-card button:hover,.cp-current-folder button:hover,.cp-card-actions button:hover,.cp-dialog button:hover{background:#303030}
