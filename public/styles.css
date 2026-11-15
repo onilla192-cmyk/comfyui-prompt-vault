@@ -1398,3 +1398,68 @@ input,textarea,select {
     width:210px;
   }
 }
+
+
+/* Corrected folder sidebar: preserve compact folder tile dimensions. */
+@media (min-width:561px) {
+  .created-presets-page .cp-library-panel {
+    display:grid !important;
+    grid-template-columns:210px minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr);
+    grid-template-areas:"status status" "folders presets";
+    gap:14px 18px;
+    height:100%;
+    min-height:0;
+    overflow:hidden;
+  }
+  .created-presets-page .cp-library-panel #cp-status { grid-area:status; }
+  .created-presets-page .cp-folder-grid {
+    grid-area:folders;
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:stretch;
+    justify-content:flex-start;
+    gap:8px;
+    width:210px;
+    min-width:0;
+    min-height:0;
+    max-height:100%;
+    margin:0;
+    padding:0 5px 8px 0;
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+  }
+  .created-presets-page .cp-folder-card {
+    flex:0 0 54px !important;
+    width:100%;
+    min-width:0;
+    min-height:54px;
+    max-height:54px;
+    padding:0 12px;
+  }
+  .created-presets-page .cp-card-grid {
+    grid-area:presets;
+    min-width:0;
+    min-height:0;
+    align-content:start;
+    overflow:auto;
+    overscroll-behavior:contain;
+  }
+}
+@media (max-width:560px) {
+  .created-presets-page .cp-library-panel { display:block !important; height:auto; overflow:visible; }
+  .created-presets-page .cp-folder-grid {
+    display:flex;
+    flex-direction:row;
+    gap:8px;
+    margin:0 0 14px;
+    overflow-x:auto;
+    overflow-y:hidden;
+  }
+  .created-presets-page .cp-folder-card {
+    flex:0 0 190px;
+    width:190px;
+    min-height:54px;
+  }
+}
