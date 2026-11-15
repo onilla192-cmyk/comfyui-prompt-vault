@@ -59,7 +59,13 @@
   const safeText = (tag, value, cls) => { const el = document.createElement(tag); if (cls) el.className = cls; el.textContent = value; return el; };
   async function refresh() {
     const [presets, folders] = await Promise.all([readAll(PRESETS), readAll(FOLDERS)]);
-    state.presets = presets.filter(p => p && typeof p.id === 'string' && typeof p.title === 'string' && typeof p.prompt === 'string');
+    state.presets = presets
+      .filter(p => p && typeof p.id === 'string' && (typeof p.title === 'string' || typeof p.name === 'string'))
+      .map(p => ({
+        ...p,
+        title: typeof p.title === 'string' ? p.title : p.name,
+        prompt: typeof p.prompt === 'string' ? p.prompt : ''
+      }));
     state.folders = folders.filter(f => f && typeof f.id === 'string' && typeof f.name === 'string');
     if (state.folderId && !state.folders.some(f => f.id === state.folderId)) state.folderId = null;
     render();
