@@ -14,6 +14,7 @@
   });
 
   const titleNode=document.getElementById('detail-title');
+  const starButton=document.getElementById('preset-star-toggle');
   const promptNode=document.getElementById('detail-prompt');
   const imageNode=document.getElementById('detail-image');
   const videoNode=document.getElementById('detail-video');
@@ -215,6 +216,27 @@
     promptNode.value=typeof preset.prompt==='string'?preset.prompt:'';
     currentPreset=preset;
     if(!Array.isArray(currentPreset.tags))currentPreset.tags=[];
+    const renderStarState=()=>{
+      const starred=Boolean(currentPreset.starred);
+      starButton.textContent=starred?'★':'☆';
+      starButton.setAttribute('aria-pressed',String(starred));
+      starButton.setAttribute('aria-label',starred?'Unstar preset':'Star preset');
+      starButton.title=starred?'Remove star':'Star preset';
+      starButton.classList.toggle('is-starred',starred);
+    };
+    renderStarState();
+    starButton.addEventListener('click',async()=>{
+      const next=!currentPreset.starred;
+      starButton.disabled=true;
+      statusNode.textContent=next?'Starred preset…':'Removing star…';
+      try{
+        await savePresetField('starred',next);
+        renderStarState();
+        statusNode.textContent=next?'Preset starred':'Star removed';
+      }catch(error){
+        statusNode.textContent=error.message||'Could not update star';
+      }finally{starButton.disabled=false;}
+    });
     renderTags();
     addTagButton.addEventListener('click',()=>{addTagButton.hidden=true;tagEditor.hidden=false;tagNameInput.focus();});
     tagCancel.addEventListener('click',closeTagEditor);
