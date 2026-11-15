@@ -139,7 +139,17 @@
       card.tabIndex=0;
       card.setAttribute('role','link');
       card.setAttribute('aria-label','Open preset: '+preset.title);
-      const openDetail=()=>{if(!state.mode)window.location.href='/created-preset-item.html?id='+encodeURIComponent(preset.id);};
+      const openDetail=()=>{
+        if(state.mode)return;
+        try{
+          sessionStorage.setItem('cp-preset-fast-'+preset.id,JSON.stringify({
+            title:preset.title,
+            prompt:preset.prompt,
+            tags:Array.isArray(preset.tags)?preset.tags:[]
+          }));
+        }catch{}
+        window.location.href='/created-preset-item.html?id='+encodeURIComponent(preset.id);
+      };
       card.addEventListener('click',event=>{if(event.target.closest('button'))return;openDetail();});
       card.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&!event.target.closest('button')){event.preventDefault();openDetail();}});
 
@@ -156,7 +166,7 @@
       if (state.mode) {
         const select=safeText('button',state.selected.has(preset.id)?'Selected':'Select'); select.type='button'; select.addEventListener('click',()=>{state.selected.has(preset.id)?state.selected.delete(preset.id):state.selected.add(preset.id);render();}); actions.append(select);
       } else {
-        const open=safeText('button','Open'); open.type='button'; open.addEventListener('click',()=>{window.location.href='/created-preset-item.html?id='+encodeURIComponent(preset.id);});
+        const open=safeText('button','Open'); open.type='button'; open.addEventListener('click',openDetail);
         actions.append(open);
       }
       card.append(actions); $('cp-card-grid').append(card);
