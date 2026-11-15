@@ -49,6 +49,25 @@
   const say = (message, error = false) => { $('cp-status').textContent = message; $('cp-status').classList.toggle('error', error); };
   const visible = () => state.presets.filter((p) => (p.folderId || null) === state.folderId).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
   const safeText = (tag, value, cls) => { const el = document.createElement(tag); if (cls) el.className = cls; el.textContent = value; return el; };
+  const imagePlaceholder = () => {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'cp-preset-placeholder';
+    placeholder.setAttribute('aria-label', 'No image');
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    const frame = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    frame.setAttribute('x', '3'); frame.setAttribute('y', '4');
+    frame.setAttribute('width', '18'); frame.setAttribute('height', '16');
+    frame.setAttribute('rx', '2');
+    const sun = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    sun.setAttribute('cx', '8.5'); sun.setAttribute('cy', '9'); sun.setAttribute('r', '1.5');
+    const mountain = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    mountain.setAttribute('d', 'm4 17 5-5 3 3 2-2 6 5');
+    icon.append(frame, sun, mountain);
+    placeholder.append(icon);
+    return placeholder;
+  };
   async function refresh() {
     const [presets, folders] = await Promise.all([readAll(PRESETS), readAll(FOLDERS)]);
     state.presets = presets.filter(p => p && typeof p.id === 'string' && typeof p.title === 'string' && typeof p.prompt === 'string');
@@ -157,9 +176,11 @@
       if (preset.thumbnail && preset.thumbnail.dataUrl) {
         const img=document.createElement('img');
         img.src=preset.thumbnail.posterDataUrl || preset.thumbnail.dataUrl;
-        img.alt=''; img.loading='lazy'; card.append(img);
+        img.alt=''; img.loading='lazy';
+        img.addEventListener('error', () => { img.replaceWith(imagePlaceholder()); }, { once:true });
+        card.append(img);
       }
-      else card.append(safeText('div','✦ Prompt card','cp-preset-placeholder'));
+      else card.append(imagePlaceholder());
       const body=document.createElement('div'); body.className='cp-preset-copy';
       body.append(safeText('strong',preset.title)); card.append(body);
       if (state.mode) {
