@@ -337,7 +337,7 @@
     const source=Array.isArray(parsed)?parsed:parsed&&typeof parsed==='object'&&Array.isArray(parsed.presets)?parsed.presets:null;
     if(!source)throw new Error('This file does not contain a presets list.');
     const existingIds=new Set(state.presets.map(p=>p.id)),titles=new Set(state.presets.map(p=>p.title.toLowerCase()));
-    const imported=source.filter(v=>v&&typeof v==='object'&&typeof v.title==='string'&&v.title.trim()&&typeof v.prompt==='string'&&v.prompt.trim()).map((v,i)=>({id:typeof v.id==='string'&&v.id.trim()?v.id:uid('preset-imported-'+i),title:v.title.trim(),prompt:v.prompt.trim(),createdAt:typeof v.createdAt==='number'?v.createdAt:Date.now(),...(v.thumbnail&&typeof v.thumbnail.dataUrl==='string'&&v.thumbnail.dataUrl.startsWith('data:image/')?{thumbnail:v.thumbnail}:{})}));
+    const imported=source.filter(v=>v&&typeof v==='object'&&typeof v.title==='string'&&v.title.trim()&&typeof v.prompt==='string'&&v.prompt.trim()).map((v,i)=>({id:typeof v.id==='string'&&v.id.trim()?v.id:uid('preset-imported-'+i),title:v.title.trim(),prompt:v.prompt.trim(),createdAt:typeof v.createdAt==='number'?v.createdAt:Date.now(),...(v.thumbnail&&typeof v.thumbnail.dataUrl==='string'&&(v.thumbnail.dataUrl.startsWith('data:image/')||v.thumbnail.dataUrl.startsWith('data:video/mp4'))?{thumbnail:v.thumbnail}:{})}));
     if(!imported.length)throw new Error('No valid presets were found in the selected file.');
     const add=[];
     for(const p of imported){if(existingIds.has(p.id)||titles.has(p.title.toLowerCase()))continue;existingIds.add(p.id);titles.add(p.title.toLowerCase());add.push(p);}
@@ -351,7 +351,7 @@
     try{
       const existing=new Set(state.presets.map(p=>p.title.toLowerCase()));
       const entries=[];
-      parsed.presets.forEach((p,i)=>{if(!p||typeof p.title!=='string'||!p.title.trim()||typeof p.prompt!=='string'||!p.prompt.trim())return;const title=p.title.trim();if(existing.has(title.toLowerCase()))return;existing.add(title.toLowerCase());entries.push({id:uid('preset-folder-import-'+i),title,prompt:p.prompt.trim(),createdAt:typeof p.createdAt==='number'?p.createdAt:Date.now(),folderId:folder.id,...(p.thumbnail&&typeof p.thumbnail.dataUrl==='string'&&p.thumbnail.dataUrl.startsWith('data:image/')?{thumbnail:p.thumbnail}:{})});});
+      parsed.presets.forEach((p,i)=>{if(!p||typeof p.title!=='string'||!p.title.trim()||typeof p.prompt!=='string'||!p.prompt.trim())return;const title=p.title.trim();if(existing.has(title.toLowerCase()))return;existing.add(title.toLowerCase());entries.push({id:uid('preset-folder-import-'+i),title,prompt:p.prompt.trim(),createdAt:typeof p.createdAt==='number'?p.createdAt:Date.now(),folderId:folder.id,...(p.thumbnail&&typeof p.thumbnail.dataUrl==='string'&&(p.thumbnail.dataUrl.startsWith('data:image/')||p.thumbnail.dataUrl.startsWith('data:video/mp4'))?{thumbnail:p.thumbnail}:{})});});
       if(!entries.length)throw new Error('The exported folder contains no new valid presets.');
       for(const p of entries)await put(PRESETS,p);
       await refresh();return {folder,count:entries.length};
