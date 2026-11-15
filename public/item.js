@@ -7,6 +7,12 @@
   const imageEmpty=document.getElementById("detail-image-empty");
   const convertButton=document.getElementById("convert-to-preset");
   const id=new URLSearchParams(window.location.search).get("id");
+  const backLink=document.querySelector(".detail-back");
+  if(backLink)backLink.addEventListener("click",event=>{
+    event.preventDefault();
+    if(window.history.length>1)window.history.back();
+    else window.location.assign("/");
+  });
   function openDb(){
     return new Promise((resolve,reject)=>{
       const request=indexedDB.open(DB,1);
