@@ -427,5 +427,11 @@
   $('cp-dialog').addEventListener('click',e=>{if(e.target===$('cp-dialog'))closeEditor();});
   $('cp-folder-dialog').addEventListener('click',e=>{if(e.target===$('cp-folder-dialog'))closeFolderEditor();});
   $('cp-move-dialog').addEventListener('click',e=>{if(e.target===$('cp-move-dialog'))$('cp-move-dialog').hidden=true;});
-  refresh().catch(e=>say(e.message||'Could not load Created Presets.',true));
+  const presetUpdates = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('created-presets-live-updates') : null;
+  if(presetUpdates) presetUpdates.addEventListener('message',event=>{
+    if(event.data&&event.data.type==='preset-updated') refresh().catch(e=>say(e.message||'Could not refresh Created Presets.',true));
+  });
+  window.addEventListener('pageshow',()=>refresh().catch(e=>say(e.message||'Could not refresh Created Presets.',true)));
+  window.addEventListener('focus',()=>refresh().catch(e=>say(e.message||'Could not refresh Created Presets.',true)));
+    refresh().catch(e=>say(e.message||'Could not load Created Presets.',true));
 })();
