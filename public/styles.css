@@ -1505,3 +1505,53 @@ input,textarea,select {
   line-height:1.35;
   overflow-wrap:anywhere;
 }
+
+
+/* Star toggle on the preset detail page and starred-card badge. */
+.created-presets-page .detail-title-row {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin:0 0 18px;
+}
+.created-presets-page .detail-title-row .detail-heading { margin:0; }
+.created-presets-page .preset-star-toggle {
+  display:inline-grid;
+  place-items:center;
+  flex:0 0 42px;
+  width:42px;
+  height:42px;
+  padding:0;
+  border:1px solid var(--ios-separator, #48484a);
+  border-radius:12px;
+  background:#2c2c2e;
+  color:#f5c542;
+  font-size:27px;
+  line-height:1;
+  cursor:pointer;
+}
+.created-presets-page .preset-star-toggle.is-starred {
+  background:rgba(245,197,66,.14);
+  border-color:rgba(245,197,66,.55);
+}
+.created-presets-page .preset-star-toggle:disabled { opacity:.6; cursor:wait; }
+.created-presets-page .cp-preset-card { position:relative; }
+.created-presets-page .cp-preset-star-badge {
+  position:absolute;
+  top:9px;
+  right:9px;
+  z-index:2;
+  display:grid;
+  place-items:center;
+  width:30px;
+  height:30px;
+  border:1px solid rgba(245,197,66,.65);
+  border-radius:50%;
+  background:rgba(28,28,30,.9);
+  color:#f5c542;
+  font-size:18px;
+  line-height:1;
+  box-shadow:0 2px 8px rgba(0,0,0,.3);
+  pointer-events:none;
+}
