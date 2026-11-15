@@ -1473,3 +1473,35 @@ input,textarea,select {
   stroke-linejoin:round;
   opacity:.8;
 }
+
+
+/* Preset title sits in a filled, bordered band along the card's bottom edge. */
+.created-presets-page .cp-preset-card {
+  display:flex;
+  flex-direction:column;
+}
+.created-presets-page .cp-preset-card > img,
+.created-presets-page .cp-preset-card > .cp-preset-placeholder {
+  flex:1 1 auto;
+  min-height:0;
+}
+.created-presets-page .cp-preset-card .cp-preset-copy {
+  display:flex;
+  align-items:center;
+  flex:0 0 auto;
+  min-height:54px;
+  margin-top:auto;
+  padding:10px 12px;
+  border:1px solid var(--ios-separator, #48484a);
+  border-radius:0 0 15px 15px;
+  background:#38383a;
+  box-sizing:border-box;
+}
+.created-presets-page .cp-preset-card .cp-preset-copy strong {
+  display:block;
+  width:100%;
+  color:#f5f5f7;
+  font-size:13px;
+  line-height:1.35;
+  overflow-wrap:anywhere;
+}
