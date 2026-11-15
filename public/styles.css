@@ -1538,3 +1538,89 @@ input,textarea,select {
     min-height:0;
   }
 }
+
+
+/* Final workspace geometry: full-width content, fixed sidebar, visible card area. */
+@media (min-width:561px) {
+  .created-presets-page .created-presets-main {
+    display:block;
+    width:100%;
+    box-sizing:border-box;
+    overflow:hidden;
+    padding:16px 20px 20px;
+  }
+  .created-presets-page .created-presets-main > .cp-library-panel {
+    display:grid !important;
+    position:relative;
+    width:100%;
+    max-width:none;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    margin:0;
+    box-sizing:border-box;
+    grid-template-columns:220px minmax(0,1fr) !important;
+    grid-template-rows:auto minmax(0,1fr) !important;
+    grid-template-areas:"status status" "folders presets" !important;
+    gap:14px 0;
+    overflow:hidden;
+  }
+  .created-presets-page .cp-library-panel > #cp-status {
+    grid-area:status !important;
+    grid-column:1 / -1 !important;
+    grid-row:1 !important;
+    min-width:0;
+  }
+  .created-presets-page .cp-library-panel > #cp-folder-grid {
+    grid-area:folders !important;
+    grid-column:1 !important;
+    grid-row:2 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    align-self:stretch;
+    width:220px;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    margin:0;
+    padding:0 14px 12px 0;
+    overflow-x:hidden;
+    overflow-y:auto;
+    border-right:1px solid var(--ios-separator);
+    box-sizing:border-box;
+  }
+  .created-presets-page .cp-library-panel > #cp-card-grid {
+    grid-area:presets !important;
+    grid-column:2 !important;
+    grid-row:2 !important;
+    display:grid !important;
+    position:relative;
+    align-self:stretch;
+    justify-self:stretch;
+    grid-template-columns:repeat(auto-fill,minmax(190px,220px)) !important;
+    grid-auto-rows:max-content;
+    align-content:start;
+    align-items:start;
+    justify-items:start;
+    width:auto !important;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    margin:0;
+    padding:2px 8px 16px 18px;
+    overflow-x:hidden;
+    overflow-y:auto;
+    box-sizing:border-box;
+    visibility:visible !important;
+    opacity:1 !important;
+  }
+  .created-presets-page .cp-library-panel > #cp-card-grid > .cp-preset-card {
+    display:flex !important;
+    flex-direction:column;
+    width:100%;
+    min-width:0;
+    min-height:0;
+    visibility:visible !important;
+    opacity:1 !important;
+  }
+}
