@@ -1454,3 +1454,22 @@ input,textarea,select {
     overflow:visible;
   }
 }
+
+
+/* Empty preset thumbnail: show a centered image glyph, never placeholder text. */
+.created-presets-page .cp-preset-placeholder {
+  display:grid;
+  place-items:center;
+  background:var(--ios-surface, #2c2c2e);
+  color:var(--ios-muted, #8e8e93);
+}
+.created-presets-page .cp-preset-placeholder svg {
+  width:34px;
+  height:34px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  opacity:.8;
+}
