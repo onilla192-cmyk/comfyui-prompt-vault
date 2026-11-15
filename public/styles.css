@@ -1072,7 +1072,19 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 .detail-edit-menu button.danger { color:#ffbaba; }
 
 
-/* Edit control stays in its own toolbar above the prompt box. */
+/* Keep the prompt field exactly as tall as the media panel; place Edit in the space above it. */
+@media (min-width:701px) {
+  .detail-heading { margin-bottom:52px; }
+  .detail-prompt-toolbar {
+    position:absolute;
+    top:-46px;
+    right:0;
+    display:block;
+    min-height:0;
+    margin:0;
+  }
+  .detail-prompt-toolbar>button { display:block; }
+}
 
 
 /* MP4 thumbnails stay unloaded until the user presses Play. */
