@@ -161,7 +161,7 @@
       }
       else card.append(safeText('div','✦ Prompt card','cp-preset-placeholder'));
       const body=document.createElement('div'); body.className='cp-preset-copy';
-      body.append(safeText('strong',preset.title),safeText('p',preset.prompt,'cp-preset-prompt')); card.append(body);
+      body.append(safeText('strong',preset.title)); card.append(body);
       if (state.mode) {
         const actions=document.createElement('div'); actions.className='cp-card-actions';
         const select=safeText('button',state.selected.has(preset.id)?'Selected':'Select'); select.type='button'; select.addEventListener('click',()=>{state.selected.has(preset.id)?state.selected.delete(preset.id):state.selected.add(preset.id);render();}); actions.append(select);
