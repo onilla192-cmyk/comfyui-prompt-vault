@@ -83,35 +83,52 @@
         icon.append(iconPath); iconWrap.append(icon);
         const divider=document.createElement('span'); divider.className='cp-folder-divider'; divider.setAttribute('aria-hidden','true');
         open.append(iconWrap,divider,safeText('strong', folder.name));
-        let clickTimer = null, highlightTimer = null, pressTimer = null;
-        open.addEventListener('click', () => {
+        let holdTimer = null, longPressTriggered = false, suppressNextClick = false;
+        const openFolderMenu = () => {
+          document.querySelectorAll('.cp-folder-menu').forEach(menu => menu.remove());
+          document.querySelectorAll('.cp-folder-backdrop').forEach(backdrop => backdrop.remove());
+          document.querySelectorAll('.cp-folder-card').forEach(item => item.classList.remove('cp-menu-open'));
+          card.classList.add('cp-menu-open');
+          const backdrop=document.createElement('div'); backdrop.className='cp-folder-backdrop';
+          const menu = document.createElement('div'); menu.className='cp-folder-menu';
+          const rect=card.getBoundingClientRect();
+          menu.style.left=rect.left+'px'; menu.style.top=rect.bottom+'px'; menu.style.width=rect.width+'px';
+          const closeMenu=()=>{menu.remove();backdrop.remove();card.classList.remove('cp-menu-open');};
+          backdrop.addEventListener('click',closeMenu);
+          const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',()=>{closeMenu();openFolder();});
+          const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{closeMenu();exportFolder(folder);});
+          const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{closeMenu();openFolderEditor(folder);});
+          menu.append(openItem,exportItem,editItem);
+          document.body.append(backdrop,menu);
+        };
+        open.addEventListener('pointerdown',event=>{
+          if(event.button!==0)return;
+          longPressTriggered=false;
+          clearTimeout(holdTimer);
           open.classList.add('is-pressed');
-          if(pressTimer)clearTimeout(pressTimer);
-          pressTimer=setTimeout(()=>open.classList.remove('is-pressed'),190);
-          if(navigator.vibrate)navigator.vibrate(12);
-          if (clickTimer) {
-            clearTimeout(clickTimer); clickTimer = null;
-            if (highlightTimer) clearTimeout(highlightTimer);
-            card.classList.remove('is-clicked');
-            document.querySelectorAll('.cp-folder-menu').forEach(menu => menu.remove());
-            document.querySelectorAll('.cp-folder-backdrop').forEach(backdrop => backdrop.remove());
-            document.querySelectorAll('.cp-folder-card').forEach(item => item.classList.remove('cp-menu-open'));
-            const backdrop=document.createElement('div'); backdrop.className='cp-folder-backdrop';
-            const menu = document.createElement('div'); menu.className='cp-folder-menu';
-            const rect=card.getBoundingClientRect();
-            menu.style.left=rect.left+'px'; menu.style.top=rect.bottom+'px'; menu.style.width=rect.width+'px';
-            const closeMenu=()=>{menu.remove();backdrop.remove();};
-            backdrop.addEventListener('click',closeMenu);
-            const openItem=safeText('button','Open'); openItem.type='button'; openItem.addEventListener('click',()=>{closeMenu();openFolder();});
-            const exportItem=safeText('button','Export'); exportItem.type='button'; exportItem.addEventListener('click',()=>{closeMenu();exportFolder(folder);});
-            const editItem=safeText('button','Edit'); editItem.type='button'; editItem.addEventListener('click',()=>{closeMenu();openFolderEditor(folder);});
-            menu.append(openItem,exportItem,editItem);
-            document.body.append(backdrop,menu);
+          holdTimer=setTimeout(()=>{
+            longPressTriggered=true;
+            suppressNextClick=true;
+            if(navigator.vibrate)navigator.vibrate(12);
+            openFolderMenu();
+          },500);
+        });
+        const endPress=()=>{
+          clearTimeout(holdTimer);
+          open.classList.remove('is-pressed');
+        };
+        open.addEventListener('pointerup',endPress);
+        open.addEventListener('pointercancel',endPress);
+        open.addEventListener('pointerleave',endPress);
+        open.addEventListener('click',event=>{
+          if(suppressNextClick||longPressTriggered){
+            event.preventDefault();
+            event.stopPropagation();
+            suppressNextClick=false;
+            longPressTriggered=false;
             return;
           }
-          card.classList.add('is-clicked');
-          highlightTimer = setTimeout(() => card.classList.remove('is-clicked'), 900);
-          clickTimer = setTimeout(() => { clickTimer = null; }, 650);
+          openFolder();
         });
         card.append(open); $('cp-folder-grid').append(card);
       });
