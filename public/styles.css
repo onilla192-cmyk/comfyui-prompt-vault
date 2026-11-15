@@ -1072,19 +1072,7 @@ html:has(.detail-main), body:has(.detail-main) { height: 100%; min-height: 0; ov
 .detail-edit-menu button.danger { color:#ffbaba; }
 
 
-/* Overlay the Edit control so it does not change the prompt box dimensions. */
-.detail-editor-wrap { position:relative; }
-.detail-prompt-toolbar {
-  position:absolute;
-  z-index:10;
-  top:8px;
-  right:8px;
-  display:block;
-  min-height:0;
-  margin:0;
-  flex:none;
-}
-.detail-prompt-toolbar>button { display:block; }
+/* Edit control stays in its own toolbar above the prompt box. */
 
 
 /* MP4 thumbnails stay unloaded until the user presses Play. */
