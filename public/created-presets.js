@@ -69,6 +69,9 @@
     state.folders = folders.filter(f => f && typeof f.id === 'string' && typeof f.name === 'string');
     if (state.folderId && !state.folders.some(f => f.id === state.folderId)) state.folderId = null;
     render();
+    const rootCount = state.presets.filter(p => !p.folderId).length;
+    const folderedCount = state.presets.length - rootCount;
+    say('Storage check: ' + state.presets.length + ' saved preset record(s) found (' + rootCount + ' on the main page, ' + folderedCount + ' in folders).');
   }
   function render() {
     $('cp-folder-grid').replaceChildren();
