@@ -1311,3 +1311,90 @@ input,textarea,select {
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; }
 }
+
+
+/* Created Presets: fixed left folder rail with its own vertical scroll area. */
+@media (min-width:701px) {
+  .created-presets-main {
+    overflow:hidden;
+    padding:16px 20px 20px;
+  }
+  .cp-library-panel {
+    display:grid;
+    grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "status status"
+      "folders presets";
+    gap:14px 18px;
+    height:100%;
+    min-height:0;
+    overflow:hidden;
+  }
+  .cp-library-panel #cp-status {
+    grid-area:status;
+    margin:0;
+  }
+  .created-presets-page .cp-folder-grid {
+    grid-area:folders;
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:8px;
+    min-width:0;
+    min-height:0;
+    max-height:100%;
+    margin:0;
+    padding-right:5px;
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    scrollbar-gutter:stable;
+  }
+  .created-presets-page .cp-folder-card {
+    flex:0 0 auto;
+    width:100%;
+    min-height:54px;
+  }
+  .created-presets-page .cp-card-grid {
+    grid-area:presets;
+    min-width:0;
+    min-height:0;
+    align-content:start;
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    padding:2px 5px 12px 0;
+    scrollbar-gutter:stable;
+  }
+  .created-presets-page .cp-current-folder {
+    position:sticky;
+    top:0;
+    z-index:3;
+    flex-wrap:wrap;
+    padding:8px;
+    border:1px solid var(--ios-separator);
+    border-radius:12px;
+    background:rgba(44,44,46,.96);
+    backdrop-filter:blur(12px);
+  }
+}
+@media (max-width:700px) {
+  .created-presets-main { overflow:auto; }
+  .cp-library-panel { display:block; height:auto; overflow:visible; }
+  .created-presets-page .cp-folder-grid {
+    display:flex;
+    flex-direction:row;
+    align-items:stretch;
+    max-width:100%;
+    margin:0 0 14px;
+    padding:0 0 8px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    overscroll-behavior-x:contain;
+  }
+  .created-presets-page .cp-folder-card {
+    flex:0 0 210px;
+    width:210px;
+  }
+}
