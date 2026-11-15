@@ -47,31 +47,14 @@
   }
   const uid = (prefix) => prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2);
   const say = (message, error = false) => { $('cp-status').textContent = message; $('cp-status').classList.toggle('error', error); };
-  const visible = () => {
-    const inCurrentFolder = state.presets.filter((p) => (p.folderId || null) === state.folderId);
-    // Keep the main workspace populated if presets are currently filed in folders.
-    // Folder views remain filtered to the selected folder.
-    const items = !state.folderId && inCurrentFolder.length === 0 && state.presets.length
-      ? state.presets
-      : inCurrentFolder;
-    return items.sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
-  };
+  const visible = () => state.presets.filter((p) => (p.folderId || null) === state.folderId).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
   const safeText = (tag, value, cls) => { const el = document.createElement(tag); if (cls) el.className = cls; el.textContent = value; return el; };
   async function refresh() {
     const [presets, folders] = await Promise.all([readAll(PRESETS), readAll(FOLDERS)]);
-    state.presets = presets
-      .filter(p => p && typeof p.id === 'string' && (typeof p.title === 'string' || typeof p.name === 'string'))
-      .map(p => ({
-        ...p,
-        title: typeof p.title === 'string' ? p.title : p.name,
-        prompt: typeof p.prompt === 'string' ? p.prompt : ''
-      }));
+    state.presets = presets.filter(p => p && typeof p.id === 'string' && typeof p.title === 'string' && typeof p.prompt === 'string');
     state.folders = folders.filter(f => f && typeof f.id === 'string' && typeof f.name === 'string');
     if (state.folderId && !state.folders.some(f => f.id === state.folderId)) state.folderId = null;
     render();
-    const rootCount = state.presets.filter(p => !p.folderId).length;
-    const folderedCount = state.presets.length - rootCount;
-    say('Storage check: ' + state.presets.length + ' saved preset record(s) found (' + rootCount + ' on the main page, ' + folderedCount + ' in folders).');
   }
   function render() {
     $('cp-folder-grid').replaceChildren();
