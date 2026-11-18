@@ -136,7 +136,7 @@ function Thumb({ item, index }: { item: VaultItem; index: number }) {
   return (
     <>
       <span className="thumb">
-        {url ? <img src={url} alt="" /> : <span>No image</span>}
+        {url ? <img src={url} alt="" loading="lazy" decoding="async" /> : <span className="preset-image-placeholder"><ImageIcon aria-hidden="true" /></span>}
       </span>
       <span className="min-w-0 text-left">
         <span className="text-xs tabular-nums text-muted">{String(index).padStart(2, "0")}</span>
