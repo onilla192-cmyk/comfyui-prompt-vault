@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { getBlob } from "@/lib/vault/db";
 import { allCards, useVault } from "@/lib/vault/store";
 import type { Folder, Preset, Thumbnail, VaultItem } from "@/lib/vault/types";
-import { Check, Copy, FolderPlus, ImagePlus, Star } from "lucide-react";
+import { Check, Copy, FolderPlus, Image as ImageIcon, ImagePlus, Star } from "lucide-react";
 
 export function VaultApp() {
   const boot = useVault((state) => state.boot);
@@ -49,8 +49,8 @@ function Library() {
   const openFolder = mode === "presets" ? folders.find((folder) => folder.id === folderId) ?? null : null;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-5 pb-28 pt-8 sm:max-w-5xl sm:px-8">
-      <header className="flex flex-col gap-6 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div className="app-shell flex min-h-screen w-full flex-col px-5 pb-28 pt-5 sm:px-7">
+      <header className="app-header flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="font-display text-4xl leading-none">{openFolder ? openFolder.name : "Prompt Vault"}</h1>
         <div className="flex gap-1" role="tablist">
           <Tab active={mode === "vault"} onClick={() => setScreen({ name: "vault" })}>
@@ -510,30 +510,40 @@ function PresetGrid({ folderId, setFolderId }: { folderId: string | null; setFol
         key={preset.id}
         type="button"
         onClick={() => (selectMode ? toggleSelected(preset.id) : setScreen({ name: "preset", id: preset.id }))}
-        className={`row ${selected.includes(preset.id) ? "bg-surface" : ""}`}
+        className={`preset-card ${selected.includes(preset.id) ? "is-selected" : ""}`}
       >
-        <span className="thumb">{shot ? <img src={shot} alt="" /> : <span>No image</span>}</span>
-        <span className="min-w-0 text-left">
-          <strong className={`block${preset.starred ? " starred" : ""}`}>
-            {preset.starred ? "★ " : ""}
-            {preset.title}
-          </strong>
-          <p>{preset.prompt}</p>
+        <span className="preset-card-media">
+          {shot ? <img src={shot} alt="" loading="lazy" decoding="async" /> : <span className="preset-image-placeholder"><ImageIcon aria-hidden="true" /></span>}
+          {preset.starred ? <span className="preset-card-star" aria-label="Starred"><Star aria-hidden="true" fill="currentColor" /></span> : null}
         </span>
+        <span className="preset-card-title">{preset.title}</span>
       </button>
     );
   }
 
   return (
     <>
-      <section className={`mt-2${grid ? " board is-grid" : ""}`}>
-        {visiblePresets.filter((preset) => preset.starred).map((preset) => presetRow(preset))}
-        {visibleFolders.map((folder) => (
-          <FolderCard key={folder.id} folder={folder} onOpen={() => setFolderId(folder.id)} onEdit={() => setFolderEditor(folder)} onExport={() => exportPresets(folder)} />
-        ))}
-        {visiblePresets.filter((preset) => !preset.starred).map((preset) => presetRow(preset))}
-      </section>
-      {!visibleFolders.length && !visiblePresets.length ? <p className="py-8 text-sm text-muted">Nothing in this folder yet.</p> : null}
+      <div className="preset-workspace">
+        <aside className="folder-sidebar" aria-label="Preset folders">
+          <button type="button" className={`folder-sidebar-all${folderId ? "" : " is-active"}`} onClick={() => setFolderId(null)}>
+            All presets
+          </button>
+          {current ? (
+            <button type="button" className="folder-sidebar-parent" onClick={() => setFolderId(current.parentId ?? null)}>
+              ← Parent folder
+            </button>
+          ) : null}
+          <div className="folder-sidebar-list">
+            {visibleFolders.map((folder) => (
+              <FolderCard key={folder.id} folder={folder} onOpen={() => setFolderId(folder.id)} onEdit={() => setFolderEditor(folder)} onExport={() => exportPresets(folder)} />
+            ))}
+          </div>
+        </aside>
+        <section className={`preset-board${grid ? " is-grid" : " is-list"}`} aria-label="Preset cards">
+          {visiblePresets.map((preset) => presetRow(preset))}
+          {!visibleFolders.length && !visiblePresets.length ? <p className="empty-library">Nothing in this folder yet.</p> : null}
+        </section>
+      </div>
       <PresetDock
         folderId={folderId}
         folder={current}
@@ -1027,7 +1037,7 @@ function PresetDetail({ id }: { id: string }) {
         <section className="order-2 lg:order-1">
           <div ref={frameRef} className={`overflow-hidden rounded-2xl bg-surface ring-1 ring-line ${media ? "" : "grid min-h-72 place-items-center"}`}>
             {media?.type === "video/mp4" ? (
-              <video src={media.dataUrl} poster={poster || undefined} controls playsInline className="block h-auto w-full" />
+              <video src={media.dataUrl} poster={poster || undefined} controls loop playsInline className="block h-auto w-full" />
             ) : poster ? (
               <img src={poster} alt="" width={media?.width || undefined} height={media?.height || undefined} className="block h-auto w-full" />
             ) : (
