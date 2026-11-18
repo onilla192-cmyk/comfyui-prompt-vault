@@ -9,6 +9,7 @@ import {
   importDatasetRecords,
   loadFolders,
   loadPresets,
+  migrateLegacyBrowserData,
   newId,
   readDatasets,
   removeFolderRecord,
@@ -100,6 +101,7 @@ export const useVault = create<State>((set, get) => ({
     }, 3200);
   },
   boot: async () => {
+    await migrateLegacyBrowserData();
     ensureSeed();
     const prefs = readPrefs();
     const [presets, folders] = await Promise.all([loadPresets(), loadFolders()]);
