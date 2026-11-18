@@ -164,7 +164,10 @@ async function readLegacyBlobs(): Promise<Array<{ key: IDBValidKey; blob: Blob }
     let values: Blob[] | null = null;
     let keys: IDBValidKey[] | null = null;
     const finish = () => {
-      if (values && keys) resolve(keys.flatMap((key, index) => values?.[index] instanceof Blob ? [{ key, blob: values[index] }] : []));
+      if (values === null || keys === null) return;
+      const storedValues = values;
+      const storedKeys = keys;
+      resolve(storedKeys.flatMap((key, index) => storedValues[index] instanceof Blob ? [{ key, blob: storedValues[index] }] : []));
     };
     request.onsuccess = () => { values = request.result as Blob[]; finish(); };
     keysRequest.onsuccess = () => { keys = keysRequest.result; finish(); };
