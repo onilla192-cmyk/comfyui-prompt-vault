@@ -12,7 +12,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
       { name: "description", content: "A private desk for ComfyUI prompts, reference cards, and reusable presets." },
-      { name: "theme-color", content: "#12100e" },
+      { name: "theme-color", content: "#1c1c1e" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
