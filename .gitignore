@@ -1,4 +1,12 @@
-node_modules/
-dist/
-.wrangler/
-.DS_Store
+node_modules
+dist
+.output
+.vercel
+.tanstack
+.grok
+.env
+.env.*
+*.log
+screenshots
+attachments
+artifacts

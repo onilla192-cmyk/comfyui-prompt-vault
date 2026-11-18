@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Prompt Vault">
+  <rect width="32" height="32" rx="7" fill="#12110e"/>
+  <rect x="6" y="7.5" width="11" height="5" rx="1.4" fill="#e2a23a"/>
+  <path fill="#f3efe6" d="M6 11.5h20v12.8a2.2 2.2 0 0 1-2.2 2.2H8.2A2.2 2.2 0 0 1 6 24.3V11.5z"/>
+  <rect x="6" y="11.5" width="4.2" height="15" fill="#c45c32"/>
+</svg>
