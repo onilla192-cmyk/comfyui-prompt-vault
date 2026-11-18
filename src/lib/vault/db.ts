@@ -107,8 +107,110 @@ export function loadPresets() {
   return readStore<Preset>(PRESET_STORE);
 }
 
+
 export function loadFolders() {
   return readStore<Folder>(FOLDER_STORE);
+}
+
+const LEGACY_PRESET_DB = "prompt-vault-created-presets-v1";
+const LEGACY_MEDIA_DB = "prompt-vault-imported-media";
+const LEGACY_MIGRATION_KEY = "prompt-vault-legacy-browser-data-v1";
+
+async function readLegacyStore<T>(databaseName: string, storeName: string): Promise<T[]> {
+  let createdDuringRead = false;
+  const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
+    const request = indexedDB.open(databaseName);
+    request.onupgradeneeded = () => {
+      createdDuringRead = true;
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Could not read legacy browser data."));
+  });
+  if (!db) return [];
+  if (!db.objectStoreNames.contains(storeName)) {
+    db.close();
+    if (createdDuringRead) {
+      const deletion = indexedDB.deleteDatabase(databaseName);
+      deletion.onerror = () => console.warn("Could not remove an empty temporary database:", databaseName);
+    }
+    return [];
+  }
+  const rows = await new Promise<T[]>((resolve, reject) => {
+    const request = db.transaction(storeName, "readonly").objectStore(storeName).getAll();
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? (request.result as T[]) : []);
+    request.onerror = () => reject(request.error ?? new Error("Could not read legacy records."));
+  });
+  db.close();
+  return rows;
+}
+
+async function readLegacyBlobs(): Promise<Array<{ key: IDBValidKey; blob: Blob }>> {
+  let createdDuringRead = false;
+  const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
+    const request = indexedDB.open(LEGACY_MEDIA_DB);
+    request.onupgradeneeded = () => { createdDuringRead = true; };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Could not read legacy image storage."));
+  });
+  if (!db) return [];
+  if (!db.objectStoreNames.contains("images")) {
+    db.close();
+    if (createdDuringRead) indexedDB.deleteDatabase(LEGACY_MEDIA_DB);
+    return [];
+  }
+  const entries = await new Promise<Array<{ key: IDBValidKey; blob: Blob }>>((resolve, reject) => {
+    const request = db.transaction("images", "readonly").objectStore("images").getAll();
+    const keysRequest = db.transaction("images", "readonly").objectStore("images").getAllKeys();
+    let values: Blob[] | null = null;
+    let keys: IDBValidKey[] | null = null;
+    const finish = () => {
+      if (values && keys) resolve(keys.flatMap((key, index) => values?.[index] instanceof Blob ? [{ key, blob: values[index] }] : []));
+    };
+    request.onsuccess = () => { values = request.result as Blob[]; finish(); };
+    keysRequest.onsuccess = () => { keys = keysRequest.result; finish(); };
+    request.onerror = () => reject(request.error ?? new Error("Could not read legacy image records."));
+    keysRequest.onerror = () => reject(keysRequest.error ?? new Error("Could not read legacy image keys."));
+  });
+  db.close();
+  return entries;
+}
+
+/** Copy records from the previous static vault databases without deleting or modifying them. */
+export async function migrateLegacyBrowserData() {
+  if (localStorage.getItem(LEGACY_MIGRATION_KEY) === "complete") return;
+  const [legacyPresets, legacyFolders, legacyBlobs] = await Promise.all([
+    readLegacyStore<Partial<Preset>>(LEGACY_PRESET_DB, PRESET_STORE),
+    readLegacyStore<Partial<Folder>>(LEGACY_PRESET_DB, FOLDER_STORE),
+    readLegacyBlobs(),
+  ]);
+  const [currentPresets, currentFolders] = await Promise.all([loadPresets(), loadFolders()]);
+  const presetIds = new Set(currentPresets.map((entry) => entry.id));
+  const folderIds = new Set(currentFolders.map((entry) => entry.id));
+  for (const record of legacyPresets) {
+    if (typeof record.id !== "string" || presetIds.has(record.id) || typeof record.title !== "string") continue;
+    await savePreset({
+      ...record,
+      id: record.id,
+      title: record.title,
+      prompt: typeof record.prompt === "string" ? record.prompt : "",
+      createdAt: typeof record.createdAt === "number" ? record.createdAt : Date.now(),
+    } as Preset);
+    presetIds.add(record.id);
+  }
+  for (const record of legacyFolders) {
+    if (typeof record.id !== "string" || folderIds.has(record.id) || typeof record.name !== "string") continue;
+    await saveFolder({
+      ...record,
+      id: record.id,
+      name: record.name,
+      createdAt: typeof record.createdAt === "number" ? record.createdAt : Date.now(),
+    } as Folder);
+    folderIds.add(record.id);
+  }
+  for (const entry of legacyBlobs) {
+    if (typeof entry.key === "string") await putBlob(entry.key, entry.blob);
+  }
+  localStorage.setItem(LEGACY_MIGRATION_KEY, "complete");
 }
 
 export async function savePreset(preset: Preset) {
