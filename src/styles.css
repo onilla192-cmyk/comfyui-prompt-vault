@@ -53,9 +53,8 @@
   text-align: left;
 }
 .thumb {
-  display: grid;
+  display: block;
   width: 100%;
-  place-items: center;
   overflow: hidden;
   border-radius: 0.55rem;
   background: #241f1a;
@@ -65,13 +64,20 @@
   text-transform: uppercase;
 }
 .thumb:not(:has(img, video)) {
+  display: grid;
   aspect-ratio: 1;
+  place-items: center;
 }
 .thumb img,
 .thumb video {
   display: block;
   width: 100%;
   height: auto;
+  max-width: 100%;
+}
+.board.is-grid .thumb {
+  flex: none;
+  width: 100%;
 }
 .row strong,
 .plate strong {
